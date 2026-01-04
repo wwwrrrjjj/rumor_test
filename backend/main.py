@@ -165,39 +165,7 @@ def detect(
             "reasoning_steps": llm_result["reasoning_steps"],
             "record_id": record.id
         }
-    }
-    
-    # 2. 校验文本长度
-    if len(request.content) < 1 or len(request.content) > 500:
-        raise HTTPException(status_code=400, detail="文本长度需1-500字")
-    
-    # 3. 调用模型检测（先模拟）
-    llm_result = fake_llm_detect(request.content, request.type)
-    
-    # 4. 存储检测记录到数据库
-    record = ReasoningRecord(
-        user_id=user_id,
-        content=request.content,
-        type=request.type,
-        rumor_prob=llm_result["rumor_prob"],
-        is_ai_generated=llm_result["is_ai_generated"],
-        reasoning_steps=json.dumps(llm_result["reasoning_steps"], ensure_ascii=False)  # 转JSON字符串存储
-    )
-    db.add(record)
-    db.commit()
-    
-    # 5. 返回结果给前端
-    return {
-        "code": 200,
-        "msg": "检测成功",
-        "data": {
-            "rumor_prob": llm_result["rumor_prob"],
-            "is_ai_generated": llm_result["is_ai_generated"],
-            "reasoning_steps": llm_result["reasoning_steps"],
-            "record_id": record.id
-        }
-    }
-
+    } 
 # 3. 历史记录查询接口（GET /api/history）
 @app.get("/api/history")
 def get_history(
@@ -216,8 +184,6 @@ def get_history(
         user_id = verify_token(token)
     except:
         raise HTTPException(status_code=401, detail="Token无效/过期")
-    
-    # 下面的代码（分页查询、格式化结果等）保持不变
     # 2. 分页查询历史记录
     offset = (page - 1) * size
     records = db.query(ReasoningRecord).filter(ReasoningRecord.user_id == user_id).order_by(ReasoningRecord.create_time.desc()).offset(offset).limit(size).all()
@@ -246,36 +212,6 @@ def get_history(
             "list": history_list
         }
     }
-    
-    # 2. 分页查询历史记录
-    offset = (page - 1) * size
-    records = db.query(ReasoningRecord).filter(ReasoningRecord.user_id == user_id).order_by(ReasoningRecord.create_time.desc()).offset(offset).limit(size).all()
-    
-    # 3. 格式化结果
-    history_list = []
-    for r in records:
-        history_list.append({
-            "record_id": r.id,
-            "content": r.content,
-            "type": r.type,
-            "rumor_prob": float(r.rumor_prob),
-            "is_ai_generated": r.is_ai_generated,
-            "create_time": r.create_time.strftime("%Y-%m-%d %H:%M:%S")
-        })
-    
-    # 4. 返回总数+列表
-    total = db.query(ReasoningRecord).filter(ReasoningRecord.user_id == user_id).count()
-    return {
-        "code": 200,
-        "msg": "查询成功",
-        "data": {
-            "total": total,
-            "page": page,
-            "size": size,
-            "list": history_list
-        }
-    }
-
 # ---------------------- 启动后端 ----------------------
 if __name__ == "__main__":
     db = SessionLocal()
@@ -291,13 +227,13 @@ if __name__ == "__main__":
         else:
             print("测试用户已存在，无需重复创建")
     except Exception as e:
-        # 捕获创建用户时的异常（比如密码加密错误）
+        # 捕获创建用户时的异常
         print(f"创建测试用户失败：{str(e)}")
         db.rollback()  # 出错回滚，避免数据库事务异常
     finally:
-        # 无论是否成功，都关闭数据库连接
+        # 关闭数据库连接
         db.close()
     
-    # 启动服务（0.0.0.0表示允许外部访问，端口8000）
+    # 启动服务（端口8000）
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
