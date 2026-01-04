@@ -1,0 +1,265 @@
+<!-- frontend/index.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>谣言甄别系统</title>
+    <style>
+        /* 基础样式，保证交互清晰 */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "Microsoft YaHei", sans-serif; background: #f5f5f5; }
+        .container { width: 80%; max-width: 800px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .title { text-align: center; margin-bottom: 30px; color: #333; }
+        .section { margin-bottom: 20px; }
+        .hidden { display: none; }  /* 隐藏区域 */
+        label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
+        input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        textarea { height: 150px; resize: none; }
+        button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+        button:hover { background: #0056b3; }
+        .hint { font-size: 12px; color: #999; margin-top: 5px; }
+        .result { margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 4px; }
+        .result p { margin-bottom: 10px; line-height: 1.6; }
+        .step { margin-left: 20px; margin-bottom: 5px; }
+        .history-item { padding: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">谣言甄别系统</h1>
+
+        <!-- 1. 登录区域 -->
+        <div id="login-section" class="section">
+            <h2>用户登录</h2>
+            <div>
+                <label for="username">用户名</label>
+                <input type="text" id="username" placeholder="请输入用户名">
+            </div>
+            <div style="margin-top: 15px;">
+                <label for="password">密码</label>
+                <input type="password" id="password" placeholder="请输入密码">
+            </div>
+            <button id="login-btn">登录</button>
+        </div>
+
+        <!-- 2. 检测区域（登录后显示） -->
+        <div id="detect-section" class="section hidden">
+            <h2>谣言文本检测</h2>
+            <div>
+                <label for="rumor-type">谣言类型</label>
+                <select id="rumor-type">
+                    <option value="疫情相关">疫情相关</option>
+                    <option value="食品安全">食品安全</option>
+                    <option value="社会事件">社会事件</option>
+                    <option value="其他">其他</option>
+                </select>
+            </div>
+            <div style="margin-top: 15px;">
+                <label for="rumor-content">检测文本（1-500字）</label>
+                <textarea id="rumor-content" placeholder="请输入需要检测的文本..."></textarea>
+                <div class="hint" id="length-hint">当前长度：0/500</div>
+            </div>
+            <button id="detect-btn">开始检测</button>
+            <button id="history-btn" style="background: #6c757d; margin-top: 10px;">查看检测历史</button>
+
+            <!-- 检测结果展示 -->
+            <div id="result-section" class="result hidden">
+                <h3>检测结果</h3>
+                <p>谣言概率：<span id="rumor-prob"></span></p>
+                <p>是否AI生成：<span id="is-ai-generated"></span></p>
+                <p>推理步骤：</p>
+                <div id="reasoning-steps"></div>
+            </div>
+        </div>
+
+        <!-- 3. 历史记录区域 -->
+        <div id="history-section" class="section hidden">
+            <h2>检测历史</h2>
+            <button id="back-btn" style="background: #6c757d;">返回检测页面</button>
+            <div id="history-list" style="margin-top: 20px;"></div>
+        </div>
+    </div>
+
+    <!-- 引入Axios（用于发送HTTP请求） -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/axios/1.6.2/axios.min.js"></script>
+    <script>
+        // 全局变量：存储Token和用户ID（登录后赋值）
+        let token = "";
+        let userId = "";
+
+        // ---------------------- DOM元素获取 ----------------------
+        // 登录区域
+        const loginSection = document.getElementById("login-section");
+        const usernameInput = document.getElementById("username");
+        const passwordInput = document.getElementById("password");
+        const loginBtn = document.getElementById("login-btn");
+
+        // 检测区域
+        const detectSection = document.getElementById("detect-section");
+        const rumorTypeSelect = document.getElementById("rumor-type");
+        const rumorContentTextarea = document.getElementById("rumor-content");
+        const lengthHint = document.getElementById("length-hint");
+        const detectBtn = document.getElementById("detect-btn");
+        const historyBtn = document.getElementById("history-btn");
+
+        // 结果区域
+        const resultSection = document.getElementById("result-section");
+        const rumorProbSpan = document.getElementById("rumor-prob");
+        const isAiGeneratedSpan = document.getElementById("is-ai-generated");
+        const reasoningStepsDiv = document.getElementById("reasoning-steps");
+
+        // 历史记录区域
+        const historySection = document.getElementById("history-section");
+        const backBtn = document.getElementById("back-btn");
+        const historyListDiv = document.getElementById("history-list");
+
+        // ---------------------- 工具函数 ----------------------
+        // 提示框（替代alert，更友好）
+        function showToast(msg, isError = false) {
+            alert(msg); // 简单版，后续可替换为美化的提示框
+        }
+
+        // ---------------------- 登录逻辑 ----------------------
+        loginBtn.addEventListener("click", async () => {
+            // 1. 获取输入的用户名密码
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+
+            // 2. 校验非空
+            if (!username || !password) {
+                showToast("用户名和密码不能为空！", true);
+                return;
+            }
+
+            // 3. 调用后端登录接口
+            try {
+                // 检测按钮的请求逻辑（替换成以下代码）
+                const response = await axios.post("http://localhost:8000/api/login",
+                  { username: username, password: password },  // 登录参数
+            // 登录接口不需要Token，检测/历史接口才需要
+                    {}
+                );
+
+                // 4. 登录成功：存储Token，切换到检测区域
+                if (response.data.code === 200) {
+                    token = response.data.data.token;
+                    userId = response.data.data.user_id;
+                    showToast("登录成功！");
+                    loginSection.classList.add("hidden");
+                    detectSection.classList.remove("hidden");
+                }
+            } catch (error) {
+                // 5. 登录失败：提示错误信息
+                const errMsg = error.response?.data?.detail || "登录失败，请重试！";
+                showToast(errMsg, true);
+            }
+        });
+
+        // ---------------------- 文本长度检测 ----------------------
+        rumorContentTextarea.addEventListener("input", () => {
+            const length = rumorContentTextarea.value.length;
+            lengthHint.textContent = `当前长度：${length}/500`;
+            // 超过500字标红
+            if (length > 500) {
+                lengthHint.style.color = "red";
+            } else {
+                lengthHint.style.color = "#999";
+            }
+        });
+
+        // ---------------------- 检测逻辑 ----------------------
+        detectBtn.addEventListener("click", async () => {
+            // 1. 获取输入的文本和类型
+            const content = rumorContentTextarea.value.trim();
+            const type = rumorTypeSelect.value;
+
+            // 2. 校验文本长度
+            if (content.length < 1 || content.length > 500) {
+                showToast("文本长度必须在1-500字之间！", true);
+                return;
+            }
+
+            /// 调用后端检测接口（带Token）
+            try {
+                 const response = await axios.post(
+                    "http://localhost:8000/api/detect", // 去掉多余的引号，格式和登录接口一致
+                    { content: content, type: type },
+                    { headers: { "Authorization": `Bearer ${token}` } } // Token放在请求头
+                 );
+
+                // 4. 检测成功：展示结果
+                if (response.data.code === 200) {
+                    const data = response.data.data;
+                    rumorProbSpan.textContent = data.rumor_prob;
+                    isAiGeneratedSpan.textContent = data.is_ai_generated ? "是" : "否";
+                    // 渲染推理步骤
+                    reasoningStepsDiv.innerHTML = "";
+                    data.reasoning_steps.forEach((step, index) => {
+                        const stepDiv = document.createElement("div");
+                        stepDiv.className = "step";
+                        stepDiv.textContent = `${index + 1}. ${step}`;
+                        reasoningStepsDiv.appendChild(stepDiv);
+                    });
+                    // 显示结果区域
+                    resultSection.classList.remove("hidden");
+                }
+            } catch (error) {
+                const errMsg = error.response?.data?.detail || "检测失败，请重试！";
+                showToast(errMsg, true);
+            }
+        });
+
+        // ---------------------- 历史记录逻辑 ----------------------
+        // 查看历史按钮
+        historyBtn.addEventListener("click", async () => {
+            try {
+                // 调用后端历史查询接口
+                const response = await axios.get("http://localhost:8000/api/history", {
+                    headers: { "Authorization": `Bearer ${token}` },
+                    params: { page: 1, size: 20 }
+                });
+
+                // 渲染历史记录
+                if (response.data.code === 200) {
+                    const historyList = response.data.data.list;
+                    historyListDiv.innerHTML = "";
+
+                    if (historyList.length === 0) {
+                        historyListDiv.textContent = "暂无检测记录";
+                        detectSection.classList.add("hidden");
+                        historySection.classList.remove("hidden");
+                        return;
+                    }
+
+                    // 遍历记录，生成HTML
+                    historyList.forEach(item => {
+                        const itemDiv = document.createElement("div");
+                        itemDiv.className = "history-item";
+                        itemDiv.innerHTML = `
+                            <p><strong>检测时间：</strong>${item.create_time}</p>
+                            <p><strong>文本：</strong>${item.content.length > 50 ? item.content.substring(0, 50) + "..." : item.content}</p>
+                            <p><strong>类型：</strong>${item.type}</p>
+                            <p><strong>谣言概率：</strong>${item.rumor_prob}</p>
+                            <p><strong>是否AI生成：</strong>${item.is_ai_generated ? "是" : "否"}</p>
+                        `;
+                        historyListDiv.appendChild(itemDiv);
+                    });
+
+                    // 切换到历史区域
+                    detectSection.classList.add("hidden");
+                    historySection.classList.remove("hidden");
+                }
+            } catch (error) {
+                const errMsg = error.response?.data?.detail || "查询历史失败，请重试！";
+                showToast(errMsg, true);
+            }
+        });
+
+        // 返回检测页面按钮
+        backBtn.addEventListener("click", () => {
+            historySection.classList.add("hidden");
+            detectSection.classList.remove("hidden");
+        });
+    </script>
+</body>
+</html>
