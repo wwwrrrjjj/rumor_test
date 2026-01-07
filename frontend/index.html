@@ -22,6 +22,8 @@
         .result p { margin-bottom: 10px; line-height: 1.6; }
         .step { margin-left: 20px; margin-bottom: 5px; }
         .history-item { padding: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; }
+        .switch-btn { text-align: center; margin-top: 10px; color: #007bff; cursor: pointer; font-size: 14px; }
+        .switch-btn:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -40,6 +42,26 @@
                 <input type="password" id="password" placeholder="请输入密码">
             </div>
             <button id="login-btn">登录</button>
+            <div class="switch-btn" id="to-register-btn">还没有账号？点击注册</div>
+        </div>
+
+        <!-- 新增：注册区域 -->
+        <div id="register-section" class="section hidden">
+            <h2>用户注册</h2>
+            <div>
+                <label for="reg-username">用户名</label>
+                <input type="text" id="reg-username" placeholder="请设置用户名">
+            </div>
+            <div style="margin-top: 15px;">
+                <label for="reg-password">密码</label>
+                <input type="password" id="reg-password" placeholder="请设置密码（至少6位）">
+            </div>
+            <div style="margin-top: 15px;">
+                <label for="reg-confirm-password">确认密码</label>
+                <input type="password" id="reg-confirm-password" placeholder="请再次输入密码">
+            </div>
+            <button id="register-btn">注册</button>
+            <div class="switch-btn" id="to-login-btn">已有账号？点击登录</div>
         </div>
 
         <!-- 2. 检测区域（登录后显示） -->
@@ -93,6 +115,15 @@
         const usernameInput = document.getElementById("username");
         const passwordInput = document.getElementById("password");
         const loginBtn = document.getElementById("login-btn");
+        const toRegisterBtn = document.getElementById("to-register-btn");
+
+        // 新增：注册区域元素
+        const registerSection = document.getElementById("register-section");
+        const regUsernameInput = document.getElementById("reg-username");
+        const regPasswordInput = document.getElementById("reg-password");
+        const regConfirmPasswordInput = document.getElementById("reg-confirm-password");
+        const registerBtn = document.getElementById("register-btn");
+        const toLoginBtn = document.getElementById("to-login-btn");
 
         // 检测区域
         const detectSection = document.getElementById("detect-section");
@@ -119,6 +150,63 @@
             alert(msg); // 简单版，后续可替换为美化的提示框
         }
 
+        // ---------------------- 登录/注册切换逻辑 ----------------------
+        // 登录 -> 注册
+        toRegisterBtn.addEventListener("click", () => {
+            loginSection.classList.add("hidden");
+            registerSection.classList.remove("hidden");
+        });
+
+        // 注册 -> 登录
+        toLoginBtn.addEventListener("click", () => {
+            registerSection.classList.add("hidden");
+            loginSection.classList.remove("hidden");
+        });
+
+        // ---------------------- 注册逻辑 ----------------------
+        registerBtn.addEventListener("click", async () => {
+            // 1. 获取输入值
+            const username = regUsernameInput.value.trim();
+            const password = regPasswordInput.value.trim();
+            const confirmPassword = regConfirmPasswordInput.value.trim();
+
+            // 2. 基础校验
+            if (!username || !password || !confirmPassword) {
+                showToast("所有字段不能为空！", true);
+                return;
+            }
+            if (password.length < 6) {
+                showToast("密码长度至少6位！", true);
+                return;
+            }
+            if (password !== confirmPassword) {
+                showToast("两次输入的密码不一致！", true);
+                return;
+            }
+
+            // 3. 调用注册接口
+            try {
+                const response = await axios.post(
+                    "http://localhost:8000/api/register",
+                    { username, password, confirm_password: confirmPassword }
+                );
+
+                if (response.data.code === 200) {
+                    showToast("注册成功，请登录！");
+                    // 切换回登录页面
+                    registerSection.classList.add("hidden");
+                    loginSection.classList.remove("hidden");
+                    // 清空注册表单
+                    regUsernameInput.value = "";
+                    regPasswordInput.value = "";
+                    regConfirmPasswordInput.value = "";
+                }
+            } catch (error) {
+                const errMsg = error.response?.data?.detail || "注册失败，请重试！";
+                showToast(errMsg, true);
+            }
+        });
+
         // ---------------------- 登录逻辑 ----------------------
         loginBtn.addEventListener("click", async () => {
             // 1. 获取输入的用户名密码
@@ -133,11 +221,9 @@
 
             // 3. 调用后端登录接口
             try {
-                // 检测按钮的请求逻辑（替换成以下代码）
-                const response = await axios.post("http://localhost:8000/api/login",
-                  { username: username, password: password },  // 登录参数
-            // 登录接口不需要Token，检测/历史接口才需要
-                    {}
+                const response = await axios.post(
+                    "http://localhost:8000/api/login",
+                    { username: username, password: password }
                 );
 
                 // 4. 登录成功：存储Token，切换到检测区域
@@ -179,10 +265,10 @@
                 return;
             }
 
-            /// 调用后端检测接口（带Token）
+            // 调用后端检测接口（带Token）
             try {
                  const response = await axios.post(
-                    "http://localhost:8000/api/detect", // 去掉多余的引号，格式和登录接口一致
+                    "http://localhost:8000/api/detect",
                     { content: content, type: type },
                     { headers: { "Authorization": `Bearer ${token}` } } // Token放在请求头
                  );

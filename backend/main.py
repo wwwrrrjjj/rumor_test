@@ -74,6 +74,12 @@ def fake_llm_detect(content: str, type: str):
     }
 
 # ---------------------- 数据模型（请求/返回格式） ----------------------
+# 注册请求格式
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    confirm_password: str
+
 # 登录请求格式（前端传过来的参数）
 class LoginRequest(BaseModel):
     username: str
@@ -85,6 +91,45 @@ class DetectRequest(BaseModel):
     type: str     # 谣言类型（疫情/食品安全等）
 
 # ---------------------- 核心接口 ----------------------
+# 新增：注册接口（POST /api/register）
+@app.post("/api/register")
+def register(request: RegisterRequest, db: Session = Depends(get_db)):
+    # 1. 校验参数非空
+    if not request.username or not request.password or not request.confirm_password:
+        raise HTTPException(status_code=400, detail="所有字段不能为空")
+    
+    # 2. 校验密码长度（至少6位）
+    if len(request.password) < 6:
+        raise HTTPException(status_code=400, detail="密码长度至少6位")
+    
+    # 3. 校验两次密码一致
+    if request.password != request.confirm_password:
+        raise HTTPException(status_code=400, detail="两次输入的密码不一致")
+    
+    # 4. 校验用户名是否已存在
+    if db.query(User).filter(User.username == request.username).first():
+        raise HTTPException(status_code=400, detail="用户名已存在")
+    
+    # 5. 加密密码并创建用户
+    hashed_pwd = hash_password(request.password)
+    new_user = User(
+        username=request.username,
+        password=hashed_pwd,
+        create_time=datetime.now()
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)  # 刷新获取新增用户的ID
+    
+    return {
+        "code": 200,
+        "msg": "注册成功，请登录",
+        "data": {
+            "user_id": new_user.id,
+            "username": new_user.username
+        }
+    }
+
 # 1. 登录接口（POST /api/login）
 @app.post("/api/login")
 def login(request: LoginRequest, req: Request, db: Session = Depends(get_db)):
@@ -117,6 +162,7 @@ def login(request: LoginRequest, req: Request, db: Session = Depends(get_db)):
             "username": user.username
         }
     }
+
 # 2. 谣言检测接口（POST /api/detect）
 @app.post("/api/detect")
 def detect(
@@ -166,6 +212,7 @@ def detect(
             "record_id": record.id
         }
     } 
+
 # 3. 历史记录查询接口（GET /api/history）
 @app.get("/api/history")
 def get_history(
@@ -212,11 +259,11 @@ def get_history(
             "list": history_list
         }
     }
+
 # ---------------------- 启动后端 ----------------------
 if __name__ == "__main__":
     db = SessionLocal()
     try:
-        
         if not db.query(User).filter(User.username == "test").first():
             # 密码截断到72字节，避免bcrypt长度报错
             password = str("123456")[:72]
