@@ -5,32 +5,277 @@
     <meta charset="UTF-8">
     <title>谣言甄别系统</title>
     <style>
-        /* 基础样式，保证交互清晰 */
+        /* 基础样式重置 */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: "Microsoft YaHei", sans-serif; background: #f5f5f5; }
-        .container { width: 80%; max-width: 800px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        
+        /* 登录/注册区域样式（保留原有） */
+        .container { width: 90%; max-width: 1000px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         .title { text-align: center; margin-bottom: 30px; color: #333; }
         .section { margin-bottom: 20px; }
-        .hidden { display: none; }  /* 隐藏区域 */
+        /* 强化隐藏样式，提升优先级 */
+        .hidden { display: none !important; }
         label { display: block; margin-bottom: 8px; font-weight: bold; color: #555; }
-        input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
-        textarea { height: 150px; resize: none; }
-        button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; margin-top: 10px; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        button { padding: 12px; background: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
         button:hover { background: #0056b3; }
         .hint { font-size: 12px; color: #999; margin-top: 5px; }
-        .result { margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 4px; }
-        .result p { margin-bottom: 10px; line-height: 1.6; }
-        .step { margin-left: 20px; margin-bottom: 5px; }
-        .history-item { padding: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; }
         .switch-btn { text-align: center; margin-top: 10px; color: #007bff; cursor: pointer; font-size: 14px; }
         .switch-btn:hover { text-decoration: underline; }
+
+        /* ========== ChatGPT风格对话区域样式 ========== */
+        .chat-container {
+            width: 90%;
+            max-width: 1000px;
+            margin: 20px auto;
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.08);
+            overflow: hidden;
+            /* 初始默认隐藏，避免未登录时显示 */
+            display: none;
+        }
+
+        /* 聊天头部 */
+        .chat-header {
+            padding: 16px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chat-header h2 {
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        }
+        .chat-header-btns {
+            display: flex;
+            gap: 10px;
+        }
+        .chat-header-btn {
+            padding: 8px 16px;
+            font-size: 14px;
+            background: #6c757d;
+        }
+        .chat-header-btn:hover {
+            background: #5a6268;
+        }
+
+        /* 聊天内容区域 */
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #f9fafb;
+        }
+        /* 滚动条美化 */
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #ddd;
+            border-radius: 3px;
+        }
+
+        /* 消息气泡通用样式 */
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            max-width: 85%;
+        }
+        /* 用户消息（右侧） */
+        .message.user {
+            margin-left: auto;
+            flex-direction: row-reverse;
+        }
+        /* 系统消息（左侧） */
+        .message.system {
+            margin-right: auto;
+        }
+
+        /* 消息头像 */
+        .message-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #007bff;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+        .message.user .message-avatar {
+            background: #28a745;
+        }
+
+        /* 消息内容 */
+        .message-content {
+            margin: 0 12px;
+            padding: 12px 16px;
+            border-radius: 18px;
+            line-height: 1.6;
+        }
+        .message.user .message-content {
+            background: #007bff;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        .message.system .message-content {
+            background: white;
+            border: 1px solid #eee;
+            border-bottom-left-radius: 4px;
+            color: #333;
+        }
+
+        /* 消息内的结果详情样式 */
+        .result-detail {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(0,0,0,0.05);
+            font-size: 14px;
+        }
+        .result-detail p {
+            margin-bottom: 5px;
+        }
+        .reasoning-step {
+            margin-left: 10px;
+            margin-top: 3px;
+            font-size: 13px;
+        }
+
+        /* 输入区域 */
+        .chat-input-area {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #eee;
+        }
+        .input-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .type-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .type-selector label {
+            margin: 0;
+            font-size: 14px;
+        }
+        .type-selector select {
+            flex: 1;
+            padding: 8px;
+            font-size: 14px;
+        }
+        .text-input-container {
+            position: relative;
+        }
+        #chat-message-input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            resize: none;
+            height: 80px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .input-hint {
+            position: absolute;
+            bottom: 8px;
+            right: 12px;
+            font-size: 12px;
+            color: #999;
+        }
+        .send-btn-container {
+            display: flex;
+            justify-content: flex-end;
+        }
+        #send-message-btn {
+            padding: 10px 24px;
+            background: #007bff;
+            font-size: 14px;
+        }
+
+        /* 历史记录弹窗样式 */
+        .history-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .history-modal-content {
+            width: 90%;
+            max-width: 800px;
+            background: white;
+            border-radius: 12px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .history-modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .history-modal-header h3 {
+            font-size: 16px;
+            color: #333;
+        }
+        .close-modal-btn {
+            background: transparent;
+            color: #666;
+            font-size: 20px;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .history-modal-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .history-item {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            background: #f9fafb;
+        }
+        .history-item p {
+            margin-bottom: 4px;
+            font-size: 14px;
+        }
+        .history-item strong {
+            color: #555;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <!-- 登录/注册区域（保留原有） -->
+    <div class="container" id="auth-container">
         <h1 class="title">谣言甄别系统</h1>
 
-        <!-- 1. 登录区域 -->
+        <!-- 登录区域 -->
         <div id="login-section" class="section">
             <h2>用户登录</h2>
             <div>
@@ -41,11 +286,11 @@
                 <label for="password">密码</label>
                 <input type="password" id="password" placeholder="请输入密码">
             </div>
-            <button id="login-btn">登录</button>
+            <button id="login-btn" style="width:100%; margin-top:10px;">登录</button>
             <div class="switch-btn" id="to-register-btn">还没有账号？点击注册</div>
         </div>
 
-        <!-- 新增：注册区域 -->
+        <!-- 注册区域 -->
         <div id="register-section" class="section hidden">
             <h2>用户注册</h2>
             <div>
@@ -60,117 +305,188 @@
                 <label for="reg-confirm-password">确认密码</label>
                 <input type="password" id="reg-confirm-password" placeholder="请再次输入密码">
             </div>
-            <button id="register-btn">注册</button>
+            <button id="register-btn" style="width:100%; margin-top:10px;">注册</button>
             <div class="switch-btn" id="to-login-btn">已有账号？点击登录</div>
-        </div>
-
-        <!-- 2. 检测区域（登录后显示） -->
-        <div id="detect-section" class="section hidden">
-            <h2>谣言文本检测</h2>
-            <div>
-                <label for="rumor-type">谣言类型</label>
-                <select id="rumor-type">
-                    <option value="疫情相关">疫情相关</option>
-                    <option value="食品安全">食品安全</option>
-                    <option value="社会事件">社会事件</option>
-                    <option value="其他">其他</option>
-                </select>
-            </div>
-            <div style="margin-top: 15px;">
-                <label for="rumor-content">检测文本（1-500字）</label>
-                <textarea id="rumor-content" placeholder="请输入需要检测的文本..."></textarea>
-                <div class="hint" id="length-hint">当前长度：0/500</div>
-            </div>
-            <button id="detect-btn">开始检测</button>
-            <button id="history-btn" style="background: #6c757d; margin-top: 10px;">查看检测历史</button>
-
-            <!-- 检测结果展示 -->
-            <div id="result-section" class="result hidden">
-                <h3>检测结果</h3>
-                <p>谣言概率：<span id="rumor-prob"></span></p>
-                <p>是否AI生成：<span id="is-ai-generated"></span></p>
-                <p>推理步骤：</p>
-                <div id="reasoning-steps"></div>
-            </div>
-        </div>
-
-        <!-- 3. 历史记录区域 -->
-        <div id="history-section" class="section hidden">
-            <h2>检测历史</h2>
-            <button id="back-btn" style="background: #6c757d;">返回检测页面</button>
-            <div id="history-list" style="margin-top: 20px;"></div>
         </div>
     </div>
 
-    <!-- 引入Axios（用于发送HTTP请求） -->
+    <!-- ========== ChatGPT风格对话区域 ========== -->
+    <!-- 移除原有hidden类，改为CSS默认display:none -->
+    <div class="chat-container" id="chat-container">
+        <!-- 聊天头部 -->
+        <div class="chat-header">
+            <h2>谣言甄别助手</h2>
+            <div class="chat-header-btns">
+                <button class="chat-header-btn" id="history-btn">查看历史记录</button>
+                <button class="chat-header-btn" id="logout-btn">退出登录</button>
+            </div>
+        </div>
+
+        <!-- 聊天内容区域 -->
+        <div class="chat-messages" id="chat-messages">
+            <!-- 欢迎消息 -->
+            <div class="message system">
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    你好！我是谣言甄别助手，请输入需要检测的文本，我会为你分析是否为谣言以及相关推理过程。
+                </div>
+            </div>
+        </div>
+
+        <!-- 输入区域 -->
+        <div class="chat-input-area">
+            <div class="input-container">
+                <div class="type-selector">
+                    <label for="rumor-type">谣言类型：</label>
+                    <select id="rumor-type">
+                        <option value="疫情相关">疫情相关</option>
+                        <option value="食品安全">食品安全</option>
+                        <option value="社会事件">社会事件</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                <div class="text-input-container">
+                    <textarea id="chat-message-input" placeholder="请输入需要检测的文本（1-500字）..."></textarea>
+                    <div class="input-hint" id="input-length-hint">0/500</div>
+                </div>
+                <div class="send-btn-container">
+                    <button id="send-message-btn">发送检测</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 历史记录弹窗 -->
+    <div class="history-modal" id="history-modal">
+        <div class="history-modal-content">
+            <div class="history-modal-header">
+                <h3>检测历史记录</h3>
+                <button class="close-modal-btn" id="close-modal-btn">×</button>
+            </div>
+            <div class="history-modal-body" id="history-list">
+                <!-- 历史记录内容会动态生成 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入Axios -->
     <script src="https://cdn.bootcdn.net/ajax/libs/axios/1.6.2/axios.min.js"></script>
     <script>
-        // 全局变量：存储Token和用户ID（登录后赋值）
+        // 全局变量
         let token = "";
         let userId = "";
 
-        // ---------------------- DOM元素获取 ----------------------
-        // 登录区域
+        // DOM元素获取
+        // 登录/注册相关
+        const authContainer = document.getElementById("auth-container");
         const loginSection = document.getElementById("login-section");
+        const registerSection = document.getElementById("register-section");
         const usernameInput = document.getElementById("username");
         const passwordInput = document.getElementById("password");
         const loginBtn = document.getElementById("login-btn");
         const toRegisterBtn = document.getElementById("to-register-btn");
-
-        // 新增：注册区域元素
-        const registerSection = document.getElementById("register-section");
         const regUsernameInput = document.getElementById("reg-username");
         const regPasswordInput = document.getElementById("reg-password");
         const regConfirmPasswordInput = document.getElementById("reg-confirm-password");
         const registerBtn = document.getElementById("register-btn");
         const toLoginBtn = document.getElementById("to-login-btn");
 
-        // 检测区域
-        const detectSection = document.getElementById("detect-section");
+        // 聊天区域相关
+        const chatContainer = document.getElementById("chat-container");
+        const chatMessages = document.getElementById("chat-messages");
+        const chatMessageInput = document.getElementById("chat-message-input");
+        const inputLengthHint = document.getElementById("input-length-hint");
         const rumorTypeSelect = document.getElementById("rumor-type");
-        const rumorContentTextarea = document.getElementById("rumor-content");
-        const lengthHint = document.getElementById("length-hint");
-        const detectBtn = document.getElementById("detect-btn");
+        const sendMessageBtn = document.getElementById("send-message-btn");
         const historyBtn = document.getElementById("history-btn");
+        const logoutBtn = document.getElementById("logout-btn");
 
-        // 结果区域
-        const resultSection = document.getElementById("result-section");
-        const rumorProbSpan = document.getElementById("rumor-prob");
-        const isAiGeneratedSpan = document.getElementById("is-ai-generated");
-        const reasoningStepsDiv = document.getElementById("reasoning-steps");
+        // 历史记录弹窗相关
+        const historyModal = document.getElementById("history-modal");
+        const historyList = document.getElementById("history-list");
+        const closeModalBtn = document.getElementById("close-modal-btn");
 
-        // 历史记录区域
-        const historySection = document.getElementById("history-section");
-        const backBtn = document.getElementById("back-btn");
-        const historyListDiv = document.getElementById("history-list");
+        // 页面加载完成后强制初始化显示状态
+        window.onload = function() {
+            // 强制隐藏聊天容器（双重保障）
+            chatContainer.style.display = "none";
+            // 确保登录/注册容器显示
+            authContainer.style.display = "block";
+            // 确保默认显示登录区域，隐藏注册区域
+            loginSection.style.display = "block";
+            registerSection.style.display = "none";
+            // 清空输入框和提示
+            chatMessageInput.value = "";
+            inputLengthHint.textContent = "0/500";
+            // 隐藏历史记录弹窗
+            historyModal.style.display = "none";
+        };
 
-        // ---------------------- 工具函数 ----------------------
-        // 提示框（替代alert，更友好）
+        // 工具函数：提示框
         function showToast(msg, isError = false) {
-            alert(msg); // 简单版，后续可替换为美化的提示框
+            alert(msg);
         }
 
-        // ---------------------- 登录/注册切换逻辑 ----------------------
-        // 登录 -> 注册
+        // 工具函数：添加消息到聊天区域
+        function addMessageToChat(content, isUser = false, resultData = null) {
+            const messageDiv = document.createElement("div");
+            messageDiv.className = `message ${isUser ? "user" : "system"}`;
+            
+            // 头像
+            const avatarDiv = document.createElement("div");
+            avatarDiv.className = "message-avatar";
+            avatarDiv.textContent = isUser ? "👤" : "🤖";
+            
+            // 内容
+            const contentDiv = document.createElement("div");
+            contentDiv.className = "message-content";
+            contentDiv.textContent = content;
+
+            // 如果是系统消息且有检测结果，添加结果详情
+            if (!isUser && resultData) {
+                const resultDetailDiv = document.createElement("div");
+                resultDetailDiv.className = "result-detail";
+                
+                let aiGeneratedText = resultData.is_ai_generated ? "是" : "否";
+                let reasoningStepsHtml = "";
+                resultData.reasoning_steps.forEach((step, index) => {
+                    reasoningStepsHtml += `<div class="reasoning-step">${index + 1}. ${step}</div>`;
+                });
+
+                resultDetailDiv.innerHTML = `
+                    <p><strong>谣言概率：</strong>${resultData.rumor_prob}</p>
+                    <p><strong>是否AI生成：</strong>${aiGeneratedText}</p>
+                    <p><strong>推理过程：</strong></p>
+                    ${reasoningStepsHtml}
+                `;
+                contentDiv.appendChild(resultDetailDiv);
+            }
+
+            // 组装消息元素
+            messageDiv.appendChild(avatarDiv);
+            messageDiv.appendChild(contentDiv);
+            chatMessages.appendChild(messageDiv);
+            
+            // 滚动到最新消息
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // 登录/注册切换逻辑（保留原有）
         toRegisterBtn.addEventListener("click", () => {
-            loginSection.classList.add("hidden");
-            registerSection.classList.remove("hidden");
+            loginSection.style.display = "none";
+            registerSection.style.display = "block";
         });
-
-        // 注册 -> 登录
         toLoginBtn.addEventListener("click", () => {
-            registerSection.classList.add("hidden");
-            loginSection.classList.remove("hidden");
+            registerSection.style.display = "none";
+            loginSection.style.display = "block";
         });
 
-        // ---------------------- 注册逻辑 ----------------------
+        // 注册逻辑（保留原有）
         registerBtn.addEventListener("click", async () => {
-            // 1. 获取输入值
             const username = regUsernameInput.value.trim();
             const password = regPasswordInput.value.trim();
             const confirmPassword = regConfirmPasswordInput.value.trim();
 
-            // 2. 基础校验
             if (!username || !password || !confirmPassword) {
                 showToast("所有字段不能为空！", true);
                 return;
@@ -184,7 +500,6 @@
                 return;
             }
 
-            // 3. 调用注册接口
             try {
                 const response = await axios.post(
                     "http://localhost:8000/api/register",
@@ -193,10 +508,8 @@
 
                 if (response.data.code === 200) {
                     showToast("注册成功，请登录！");
-                    // 切换回登录页面
-                    registerSection.classList.add("hidden");
-                    loginSection.classList.remove("hidden");
-                    // 清空注册表单
+                    registerSection.style.display = "none";
+                    loginSection.style.display = "block";
                     regUsernameInput.value = "";
                     regPasswordInput.value = "";
                     regConfirmPasswordInput.value = "";
@@ -207,133 +520,136 @@
             }
         });
 
-        // ---------------------- 登录逻辑 ----------------------
+        // 登录逻辑（修改：登录后切换到聊天界面）
         loginBtn.addEventListener("click", async () => {
-            // 1. 获取输入的用户名密码
             const username = usernameInput.value.trim();
             const password = passwordInput.value.trim();
 
-            // 2. 校验非空
             if (!username || !password) {
                 showToast("用户名和密码不能为空！", true);
                 return;
             }
 
-            // 3. 调用后端登录接口
             try {
                 const response = await axios.post(
                     "http://localhost:8000/api/login",
                     { username: username, password: password }
                 );
 
-                // 4. 登录成功：存储Token，切换到检测区域
                 if (response.data.code === 200) {
                     token = response.data.data.token;
                     userId = response.data.data.user_id;
                     showToast("登录成功！");
-                    loginSection.classList.add("hidden");
-                    detectSection.classList.remove("hidden");
+                    
+                    // 隐藏登录/注册区域，显示聊天区域
+                    authContainer.style.display = "none";
+                    chatContainer.style.display = "flex"; // 恢复chat-container的flex布局
                 }
             } catch (error) {
-                // 5. 登录失败：提示错误信息
                 const errMsg = error.response?.data?.detail || "登录失败，请重试！";
                 showToast(errMsg, true);
             }
         });
 
-        // ---------------------- 文本长度检测 ----------------------
-        rumorContentTextarea.addEventListener("input", () => {
-            const length = rumorContentTextarea.value.length;
-            lengthHint.textContent = `当前长度：${length}/500`;
-            // 超过500字标红
-            if (length > 500) {
-                lengthHint.style.color = "red";
-            } else {
-                lengthHint.style.color = "#999";
-            }
+        // 退出登录逻辑
+        logoutBtn.addEventListener("click", () => {
+            // 清空token和用户信息
+            token = "";
+            userId = "";
+            // 清空聊天记录（保留欢迎语）
+            chatMessages.innerHTML = `
+                <div class="message system">
+                    <div class="message-avatar">🤖</div>
+                    <div class="message-content">
+                        你好！我是谣言甄别助手，请输入需要检测的文本，我会为你分析是否为谣言以及相关推理过程。
+                    </div>
+                </div>
+            `;
+            // 隐藏聊天区域，显示登录区域
+            chatContainer.style.display = "none";
+            authContainer.style.display = "block";
+            loginSection.style.display = "block";
+            registerSection.style.display = "none";
+            // 清空输入框
+            chatMessageInput.value = "";
+            inputLengthHint.textContent = "0/500";
         });
 
-        // ---------------------- 检测逻辑 ----------------------
-        detectBtn.addEventListener("click", async () => {
-            // 1. 获取输入的文本和类型
-            const content = rumorContentTextarea.value.trim();
+        // 输入框长度实时检测
+        chatMessageInput.addEventListener("input", () => {
+            const length = chatMessageInput.value.length;
+            inputLengthHint.textContent = `${length}/500`;
+            inputLengthHint.style.color = length > 500 ? "red" : "#999";
+        });
+
+        // 发送检测消息逻辑
+        sendMessageBtn.addEventListener("click", async () => {
+            const content = chatMessageInput.value.trim();
             const type = rumorTypeSelect.value;
 
-            // 2. 校验文本长度
+            // 校验文本长度
             if (content.length < 1 || content.length > 500) {
                 showToast("文本长度必须在1-500字之间！", true);
                 return;
             }
 
-            // 调用后端检测接口（带Token）
+            // 添加用户消息到聊天区域
+            addMessageToChat(content, true);
+            // 清空输入框
+            chatMessageInput.value = "";
+            inputLengthHint.textContent = "0/500";
+
+            // 调用检测接口
             try {
-                 const response = await axios.post(
+                const response = await axios.post(
                     "http://localhost:8000/api/detect",
                     { content: content, type: type },
-                    { headers: { "Authorization": `Bearer ${token}` } } // Token放在请求头
-                 );
+                    { headers: { "Authorization": `Bearer ${token}` } }
+                );
 
-                // 4. 检测成功：展示结果
                 if (response.data.code === 200) {
                     const data = response.data.data;
-                    rumorProbSpan.textContent = data.rumor_prob;
-                    isAiGeneratedSpan.textContent = data.is_ai_generated ? "是" : "否";
-                    // 渲染推理步骤
-                    reasoningStepsDiv.innerHTML = "";
-                    data.reasoning_steps.forEach((step, index) => {
-                        const stepDiv = document.createElement("div");
-                        stepDiv.className = "step";
-                        stepDiv.textContent = `${index + 1}. ${step}`;
-                        reasoningStepsDiv.appendChild(stepDiv);
-                    });
-                    // 显示结果区域
-                    resultSection.classList.remove("hidden");
+                    // 添加系统回复消息（包含检测结果）
+                    addMessageToChat("已完成检测，结果如下：", false, data);
                 }
             } catch (error) {
                 const errMsg = error.response?.data?.detail || "检测失败，请重试！";
+                addMessageToChat(`检测出错：${errMsg}`, false);
                 showToast(errMsg, true);
             }
         });
 
-        // ---------------------- 历史记录逻辑 ----------------------
-        // 查看历史按钮
+        // 查看历史记录逻辑（弹窗形式）
         historyBtn.addEventListener("click", async () => {
             try {
-                // 调用后端历史查询接口
                 const response = await axios.get("http://localhost:8000/api/history", {
                     headers: { "Authorization": `Bearer ${token}` },
                     params: { page: 1, size: 20 }
                 });
 
-                // 渲染历史记录
                 if (response.data.code === 200) {
-                    const historyList = response.data.data.list;
-                    historyListDiv.innerHTML = "";
+                    const historyData = response.data.data.list;
+                    historyList.innerHTML = "";
 
-                    if (historyList.length === 0) {
-                        historyListDiv.textContent = "暂无检测记录";
-                        detectSection.classList.add("hidden");
-                        historySection.classList.remove("hidden");
-                        return;
+                    if (historyData.length === 0) {
+                        historyList.innerHTML = "<p style='text-align:center; color:#999;'>暂无检测记录</p>";
+                    } else {
+                        historyData.forEach(item => {
+                            const itemDiv = document.createElement("div");
+                            itemDiv.className = "history-item";
+                            itemDiv.innerHTML = `
+                                <p><strong>检测时间：</strong>${item.create_time}</p>
+                                <p><strong>文本：</strong>${item.content.length > 60 ? item.content.substring(0, 60) + "..." : item.content}</p>
+                                <p><strong>类型：</strong>${item.type}</p>
+                                <p><strong>谣言概率：</strong>${item.rumor_prob}</p>
+                                <p><strong>是否AI生成：</strong>${item.is_ai_generated ? "是" : "否"}</p>
+                            `;
+                            historyList.appendChild(itemDiv);
+                        });
                     }
 
-                    // 遍历记录，生成HTML
-                    historyList.forEach(item => {
-                        const itemDiv = document.createElement("div");
-                        itemDiv.className = "history-item";
-                        itemDiv.innerHTML = `
-                            <p><strong>检测时间：</strong>${item.create_time}</p>
-                            <p><strong>文本：</strong>${item.content.length > 50 ? item.content.substring(0, 50) + "..." : item.content}</p>
-                            <p><strong>类型：</strong>${item.type}</p>
-                            <p><strong>谣言概率：</strong>${item.rumor_prob}</p>
-                            <p><strong>是否AI生成：</strong>${item.is_ai_generated ? "是" : "否"}</p>
-                        `;
-                        historyListDiv.appendChild(itemDiv);
-                    });
-
-                    // 切换到历史区域
-                    detectSection.classList.add("hidden");
-                    historySection.classList.remove("hidden");
+                    // 显示弹窗
+                    historyModal.style.display = "flex";
                 }
             } catch (error) {
                 const errMsg = error.response?.data?.detail || "查询历史失败，请重试！";
@@ -341,10 +657,24 @@
             }
         });
 
-        // 返回检测页面按钮
-        backBtn.addEventListener("click", () => {
-            historySection.classList.add("hidden");
-            detectSection.classList.remove("hidden");
+        // 关闭历史记录弹窗
+        closeModalBtn.addEventListener("click", () => {
+            historyModal.style.display = "none";
+        });
+
+        // 点击弹窗外部关闭
+        window.addEventListener("click", (e) => {
+            if (e.target === historyModal) {
+                historyModal.style.display = "none";
+            }
+        });
+
+        // 按Enter键发送消息（按住Shift+Enter换行）
+        chatMessageInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessageBtn.click();
+            }
         });
     </script>
 </body>
