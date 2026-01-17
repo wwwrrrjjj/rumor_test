@@ -299,7 +299,7 @@
             </div>
             <div style="margin-top: 15px;">
                 <label for="reg-password">密码</label>
-                <input type="password" id="reg-password" placeholder="请设置密码（至少6位）">
+                <input type="password" id="reg-password" placeholder="请设置密码（6-72位）">
             </div>
             <div style="margin-top: 15px;">
                 <label for="reg-confirm-password">确认密码</label>
@@ -311,7 +311,6 @@
     </div>
 
     <!-- ========== ChatGPT风格对话区域 ========== -->
-    <!-- 移除原有hidden类，改为CSS默认display:none -->
     <div class="chat-container" id="chat-container">
         <!-- 聊天头部 -->
         <div class="chat-header">
@@ -408,19 +407,51 @@
 
         // 页面加载完成后强制初始化显示状态
         window.onload = function() {
-            // 强制隐藏聊天容器（双重保障）
+            // 强制隐藏聊天容器
             chatContainer.style.display = "none";
             // 确保登录/注册容器显示
             authContainer.style.display = "block";
-            // 确保默认显示登录区域，隐藏注册区域
-            loginSection.style.display = "block";
-            registerSection.style.display = "none";
+            // 使用classList确保正确的显示状态
+            loginSection.classList.remove("hidden");
+            registerSection.classList.add("hidden");
             // 清空输入框和提示
             chatMessageInput.value = "";
             inputLengthHint.textContent = "0/500";
             // 隐藏历史记录弹窗
             historyModal.style.display = "none";
+            // 清空登录/注册输入框
+            usernameInput.value = "";
+            passwordInput.value = "";
+            regUsernameInput.value = "";
+            regPasswordInput.value = "";
+            regConfirmPasswordInput.value = "";
+            
+            console.log("页面初始化完成");
+            console.log("登录区域隐藏状态:", loginSection.classList.contains("hidden"));
+            console.log("注册区域隐藏状态:", registerSection.classList.contains("hidden"));
         };
+
+        // 登录/注册切换逻辑 - 修复版本
+        function switchTab(tabName) {
+            console.log("切换到:", tabName);
+            if (tabName === "login") {
+                loginSection.classList.remove("hidden");
+                registerSection.classList.add("hidden");
+            } else {
+                loginSection.classList.add("hidden");
+                registerSection.classList.remove("hidden");
+            }
+        }
+
+        toRegisterBtn.addEventListener("click", () => {
+            console.log("点击切换到注册");
+            switchTab("register");
+        });
+        
+        toLoginBtn.addEventListener("click", () => {
+            console.log("点击切换到登录");
+            switchTab("login");
+        });
 
         // 工具函数：提示框
         function showToast(msg, isError = false) {
@@ -453,7 +484,14 @@
                     reasoningStepsHtml += `<div class="reasoning-step">${index + 1}. ${step}</div>`;
                 });
 
+                // 新增关键字展示
+                let keywordsHtml = "";
+                resultData.keywords.forEach(keyword => {
+                    keywordsHtml += `${keyword} `;
+                });
+
                 resultDetailDiv.innerHTML = `
+                    <p><strong>核心关键字：</strong>${keywordsHtml}</p>
                     <p><strong>谣言概率：</strong>${resultData.rumor_prob}</p>
                     <p><strong>是否AI生成：</strong>${aiGeneratedText}</p>
                     <p><strong>推理过程：</strong></p>
@@ -471,28 +509,21 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-        // 登录/注册切换逻辑（保留原有）
-        toRegisterBtn.addEventListener("click", () => {
-            loginSection.style.display = "none";
-            registerSection.style.display = "block";
-        });
-        toLoginBtn.addEventListener("click", () => {
-            registerSection.style.display = "none";
-            loginSection.style.display = "block";
-        });
-
-        // 注册逻辑（保留原有）
+        // 注册逻辑（修复后）
         registerBtn.addEventListener("click", async () => {
             const username = regUsernameInput.value.trim();
             const password = regPasswordInput.value.trim();
             const confirmPassword = regConfirmPasswordInput.value.trim();
 
+            console.log("注册尝试，用户名:", username, "密码长度:", password.length);
+
             if (!username || !password || !confirmPassword) {
                 showToast("所有字段不能为空！", true);
                 return;
             }
-            if (password.length < 6) {
-                showToast("密码长度至少6位！", true);
+            // 补充密码长度上限校验（匹配后端72位）
+            if (password.length < 6 || password.length > 72) {
+                showToast("密码长度需6-72位！", true);
                 return;
             }
             if (password !== confirmPassword) {
@@ -503,24 +534,40 @@
             try {
                 const response = await axios.post(
                     "http://localhost:8000/api/register",
-                    { username, password, confirm_password: confirmPassword }
+                    { 
+                        username: username, 
+                        password: password, 
+                        confirm_password: confirmPassword 
+                    }
                 );
+
+                console.log("注册响应:", response.data);
 
                 if (response.data.code === 200) {
                     showToast("注册成功，请登录！");
-                    registerSection.style.display = "none";
-                    loginSection.style.display = "block";
+                    
+                    // 切换到登录界面
+                    switchTab("login");
+                    
+                    // 自动填充用户名到登录框
+                    usernameInput.value = username;
+                    
+                    // 清空注册输入框
                     regUsernameInput.value = "";
                     regPasswordInput.value = "";
                     regConfirmPasswordInput.value = "";
+                } else {
+                    showToast(response.data.msg || "注册失败！", true);
                 }
             } catch (error) {
-                const errMsg = error.response?.data?.detail || "注册失败，请重试！";
+                console.error("注册错误:", error);
+                // 完善错误处理
+                const errMsg = error.response?.data?.detail || error.message || "注册失败，请重试！";
                 showToast(errMsg, true);
             }
         });
 
-        // 登录逻辑（修改：登录后切换到聊天界面）
+        // 登录逻辑
         loginBtn.addEventListener("click", async () => {
             const username = usernameInput.value.trim();
             const password = passwordInput.value.trim();
@@ -568,11 +615,22 @@
             // 隐藏聊天区域，显示登录区域
             chatContainer.style.display = "none";
             authContainer.style.display = "block";
-            loginSection.style.display = "block";
-            registerSection.style.display = "none";
-            // 清空输入框
+            
+            // 重置登录/注册界面状态
+            loginSection.classList.remove("hidden");
+            registerSection.classList.add("hidden");
+            
+            // 清空所有输入框
             chatMessageInput.value = "";
             inputLengthHint.textContent = "0/500";
+            usernameInput.value = "";
+            passwordInput.value = "";
+            regUsernameInput.value = "";
+            regPasswordInput.value = "";
+            regConfirmPasswordInput.value = "";
+            
+            // 显示提示
+            showToast("已退出登录");
         });
 
         // 输入框长度实时检测

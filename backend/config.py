@@ -9,9 +9,14 @@ DB_CONFIG = {
 }
 
 # Token加密配置（生产环境要改复杂，开发环境先用这个）
-SECRET_KEY = "my-secret-key-1234567890-abcdefg"
+SECRET_KEY = "0a3238e655184f7e9aa9360671979cc6.uMhPGKLm6GEyjtHm"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 300  # Token有效期5小时
-
+LLM_CONFIG = {
+    "model_name": "glm-4.5-flash",
+    "api_key": "0a3238e655184f7e9aa9360671979cc6.uMhPGKLm6GEyjtHm",  # 粘贴完整密钥
+    "temperature": 0.3,
+    "max_tokens": 1024
+}
 # 大语言模型临时配置（先模拟返回，后续替换真实模型）
-LLM_FAKE = True  # 先开模拟，避免依赖API密钥
+LLM_FAKE = False  # 先开模拟，避免依赖API密钥
