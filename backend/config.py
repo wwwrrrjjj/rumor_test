@@ -13,7 +13,7 @@ SECRET_KEY = "0a3238e655184f7e9aa9360671979cc6.uMhPGKLm6GEyjtHm"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 300  # Token有效期5小时
 LLM_CONFIG = {
-    "model_name": "glm-4.5-flash",
+    "model_name": "glm-4",  # 修改这里：从"glm-4.5-flash"改为"glm-4"
     "api_key": "0a3238e655184f7e9aa9360671979cc6.uMhPGKLm6GEyjtHm",  # 粘贴完整密钥
     "temperature": 0.3,
     "max_tokens": 1024

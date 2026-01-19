@@ -1,9 +1,14 @@
 fastapi==0.104.1
-uvicorn==0.24.0     # FastAPI 运行服务器
-sqlalchemy==2.0.23  # MySQL 连接工具
-pymysql==1.1.0      # MySQL 驱动
-requests==2.31.0    # 调用外部 API（如 Search1API）
-langchain==0.1.9    # 大语言模型管理
-openai==1.13.3      # 适配 Qwen/LLaMA2 等模型
-pandas==2.1.4       # 数据处理
-matplotlib==3.8.2   # 数据可视化
+uvicorn==0.24.0
+sqlalchemy==2.0.23
+pymysql==1.1.0
+requests==2.31.0
+langchain==0.1.9
+openai==1.13.3
+pandas==2.1.4
+matplotlib==3.8.2
+zhipuai>=2.1.0
+simplejson==3.19.1
+passlib==1.7.4
+python-jose[cryptography]==3.3.0
+jieba==0.42.1

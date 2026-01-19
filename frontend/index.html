@@ -65,6 +65,12 @@
         .chat-header-btn:hover {
             background: #5a6268;
         }
+        .cache-btn {
+            background: #28a745 !important;
+        }
+        .cache-btn:hover {
+            background: #218838 !important;
+        }
 
         /* 聊天内容区域 */
         .chat-messages {
@@ -121,6 +127,7 @@
             padding: 12px 16px;
             border-radius: 18px;
             line-height: 1.6;
+            position: relative;
         }
         .message.user .message-content {
             background: #007bff;
@@ -133,6 +140,19 @@
             border-bottom-left-radius: 4px;
             color: #333;
         }
+        /* 缓存标记 */
+        .cache-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #28a745;
+            color: white;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
 
         /* 消息内的结果详情样式 */
         .result-detail {
@@ -143,11 +163,32 @@
         }
         .result-detail p {
             margin-bottom: 5px;
+            display: flex;
+            align-items: flex-start;
+        }
+        .result-detail strong {
+            min-width: 90px;
+            display: inline-block;
+            color: #555;
         }
         .reasoning-step {
             margin-left: 10px;
             margin-top: 3px;
             font-size: 13px;
+            color: #666;
+        }
+        .keywords-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 5px;
+        }
+        .keyword-tag {
+            background: #e9ecef;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            color: #495057;
         }
 
         /* 输入区域 */
@@ -260,6 +301,10 @@
             margin-bottom: 8px;
             border-radius: 6px;
             background: #f9fafb;
+            transition: all 0.3s;
+        }
+        .history-item:hover {
+            background: #e9ecef;
         }
         .history-item p {
             margin-bottom: 4px;
@@ -267,6 +312,108 @@
         }
         .history-item strong {
             color: #555;
+            min-width: 90px;
+            display: inline-block;
+        }
+        .history-cache-badge {
+            background: #28a745;
+            color: white;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-left: 8px;
+        }
+
+        /* 统计信息弹窗 */
+        .stats-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .stats-modal-content {
+            width: 90%;
+            max-width: 600px;
+            background: white;
+            border-radius: 12px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .stats-modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .stats-modal-header h3 {
+            font-size: 16px;
+            color: #333;
+        }
+        .stats-modal-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .stats-item {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .stats-item h4 {
+            margin-bottom: 10px;
+            color: #333;
+            font-size: 14px;
+        }
+        .stats-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+            margin: 10px 0;
+        }
+        .stats-list {
+            margin-top: 10px;
+        }
+        .stats-list-item {
+            padding: 8px;
+            background: white;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            border-left: 4px solid #28a745;
+        }
+
+        /* 加载动画 */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 提示信息 */
+        .info-banner {
+            padding: 10px 15px;
+            background: #e7f3ff;
+            border-left: 4px solid #007bff;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            font-size: 14px;
         }
     </style>
 </head>
@@ -316,8 +463,9 @@
         <div class="chat-header">
             <h2>谣言甄别助手</h2>
             <div class="chat-header-btns">
-                <button class="chat-header-btn" id="history-btn">查看历史记录</button>
-                <button class="chat-header-btn" id="logout-btn">退出登录</button>
+                <button class="chat-header-btn cache-btn" id="stats-btn">📊 缓存统计</button>
+                <button class="chat-header-btn" id="history-btn">📜 历史记录</button>
+                <button class="chat-header-btn" id="logout-btn">🚪 退出登录</button>
             </div>
         </div>
 
@@ -327,6 +475,9 @@
             <div class="message system">
                 <div class="message-avatar">🤖</div>
                 <div class="message-content">
+                    <div class="info-banner">
+                        <strong>📢 系统提示：</strong> 系统已启用缓存功能，相同内容将优先从数据库读取，节省API调用并提高响应速度。
+                    </div>
                     你好！我是谣言甄别助手，请输入需要检测的文本，我会为你分析是否为谣言以及相关推理过程。
                 </div>
             </div>
@@ -349,7 +500,10 @@
                     <div class="input-hint" id="input-length-hint">0/500</div>
                 </div>
                 <div class="send-btn-container">
-                    <button id="send-message-btn">发送检测</button>
+                    <button id="send-message-btn">
+                        <span id="send-btn-text">发送检测</span>
+                        <span id="loading-indicator" class="loading hidden"></span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -360,10 +514,23 @@
         <div class="history-modal-content">
             <div class="history-modal-header">
                 <h3>检测历史记录</h3>
-                <button class="close-modal-btn" id="close-modal-btn">×</button>
+                <button class="close-modal-btn" id="close-history-btn">×</button>
             </div>
             <div class="history-modal-body" id="history-list">
                 <!-- 历史记录内容会动态生成 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 缓存统计弹窗 -->
+    <div class="stats-modal" id="stats-modal">
+        <div class="stats-modal-content">
+            <div class="stats-modal-header">
+                <h3>缓存统计信息</h3>
+                <button class="close-modal-btn" id="close-stats-btn">×</button>
+            </div>
+            <div class="stats-modal-body" id="stats-content">
+                <!-- 统计内容会动态生成 -->
             </div>
         </div>
     </div>
@@ -374,6 +541,7 @@
         // 全局变量
         let token = "";
         let userId = "";
+        let isSending = false;
 
         // DOM元素获取
         // 登录/注册相关
@@ -397,13 +565,19 @@
         const inputLengthHint = document.getElementById("input-length-hint");
         const rumorTypeSelect = document.getElementById("rumor-type");
         const sendMessageBtn = document.getElementById("send-message-btn");
+        const sendBtnText = document.getElementById("send-btn-text");
+        const loadingIndicator = document.getElementById("loading-indicator");
         const historyBtn = document.getElementById("history-btn");
+        const statsBtn = document.getElementById("stats-btn");
         const logoutBtn = document.getElementById("logout-btn");
 
-        // 历史记录弹窗相关
+        // 弹窗相关
         const historyModal = document.getElementById("history-modal");
         const historyList = document.getElementById("history-list");
-        const closeModalBtn = document.getElementById("close-modal-btn");
+        const closeHistoryBtn = document.getElementById("close-history-btn");
+        const statsModal = document.getElementById("stats-modal");
+        const statsContent = document.getElementById("stats-content");
+        const closeStatsBtn = document.getElementById("close-stats-btn");
 
         // 页面加载完成后强制初始化显示状态
         window.onload = function() {
@@ -417,8 +591,9 @@
             // 清空输入框和提示
             chatMessageInput.value = "";
             inputLengthHint.textContent = "0/500";
-            // 隐藏历史记录弹窗
+            // 隐藏弹窗
             historyModal.style.display = "none";
+            statsModal.style.display = "none";
             // 清空登录/注册输入框
             usernameInput.value = "";
             passwordInput.value = "";
@@ -427,11 +602,9 @@
             regConfirmPasswordInput.value = "";
             
             console.log("页面初始化完成");
-            console.log("登录区域隐藏状态:", loginSection.classList.contains("hidden"));
-            console.log("注册区域隐藏状态:", registerSection.classList.contains("hidden"));
         };
 
-        // 登录/注册切换逻辑 - 修复版本
+        // 登录/注册切换逻辑
         function switchTab(tabName) {
             console.log("切换到:", tabName);
             if (tabName === "login") {
@@ -458,6 +631,23 @@
             alert(msg);
         }
 
+        // 设置发送状态
+        function setSendingState(isSending) {
+            if (isSending) {
+                sendBtnText.textContent = "检测中...";
+                loadingIndicator.classList.remove("hidden");
+                sendMessageBtn.disabled = true;
+                chatMessageInput.disabled = true;
+                rumorTypeSelect.disabled = true;
+            } else {
+                sendBtnText.textContent = "发送检测";
+                loadingIndicator.classList.add("hidden");
+                sendMessageBtn.disabled = false;
+                chatMessageInput.disabled = false;
+                rumorTypeSelect.disabled = false;
+            }
+        }
+
         // 工具函数：添加消息到聊天区域
         function addMessageToChat(content, isUser = false, resultData = null) {
             const messageDiv = document.createElement("div");
@@ -480,21 +670,51 @@
                 
                 let aiGeneratedText = resultData.is_ai_generated ? "是" : "否";
                 let reasoningStepsHtml = "";
-                resultData.reasoning_steps.forEach((step, index) => {
-                    reasoningStepsHtml += `<div class="reasoning-step">${index + 1}. ${step}</div>`;
-                });
+                if (resultData.reasoning_steps && Array.isArray(resultData.reasoning_steps)) {
+                    resultData.reasoning_steps.forEach((step, index) => {
+                        reasoningStepsHtml += `<div class="reasoning-step">${index + 1}. ${step}</div>`;
+                    });
+                }
 
-                // 新增关键字展示
+                // 关键字展示
                 let keywordsHtml = "";
-                resultData.keywords.forEach(keyword => {
-                    keywordsHtml += `${keyword} `;
-                });
+                if (resultData.keywords && Array.isArray(resultData.keywords)) {
+                    keywordsHtml = '<div class="keywords-list">';
+                    resultData.keywords.forEach(keyword => {
+                        keywordsHtml += `<span class="keyword-tag">${keyword}</span>`;
+                    });
+                    keywordsHtml += '</div>';
+                }
+
+                // 添加缓存信息
+                let cacheInfo = "";
+                if (resultData.from_cache !== undefined) {
+                    if (resultData.from_cache) {
+                        cacheInfo = `<p><strong>📊 来源：</strong>数据库缓存</p>`;
+                        cacheInfo += `<p><strong>🔄 使用次数：</strong>${resultData.use_count || 1} 次</p>`;
+                        
+                        // 添加缓存标记
+                        const cacheBadge = document.createElement("div");
+                        cacheBadge.className = "cache-badge";
+                        cacheBadge.textContent = "缓存";
+                        contentDiv.appendChild(cacheBadge);
+                        
+                        // 修改消息内容提示缓存
+                        contentDiv.textContent = "✅ 已从缓存获取检测结果：";
+                    } else {
+                        cacheInfo = `<p><strong>📊 来源：</strong>大模型实时分析</p>`;
+                        cacheInfo += `<p><strong>🔄 使用次数：</strong>首次检测</p>`;
+                        contentDiv.textContent = "🤖 大模型分析完成：";
+                    }
+                }
 
                 resultDetailDiv.innerHTML = `
-                    <p><strong>核心关键字：</strong>${keywordsHtml}</p>
-                    <p><strong>谣言概率：</strong>${resultData.rumor_prob}</p>
-                    <p><strong>是否AI生成：</strong>${aiGeneratedText}</p>
-                    <p><strong>推理过程：</strong></p>
+                    ${cacheInfo}
+                    <p><strong>🔑 核心关键字：</strong></p>
+                    ${keywordsHtml}
+                    <p><strong>📈 谣言概率：</strong>${resultData.rumor_prob || 0.5000}</p>
+                    <p><strong>🤖 是否AI生成：</strong>${aiGeneratedText}</p>
+                    <p><strong>🧠 推理过程：</strong></p>
                     ${reasoningStepsHtml}
                 `;
                 contentDiv.appendChild(resultDetailDiv);
@@ -509,7 +729,7 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
-        // 注册逻辑（修复后）
+        // 注册逻辑
         registerBtn.addEventListener("click", async () => {
             const username = regUsernameInput.value.trim();
             const password = regPasswordInput.value.trim();
@@ -521,7 +741,6 @@
                 showToast("所有字段不能为空！", true);
                 return;
             }
-            // 补充密码长度上限校验（匹配后端72位）
             if (password.length < 6 || password.length > 72) {
                 showToast("密码长度需6-72位！", true);
                 return;
@@ -561,7 +780,6 @@
                 }
             } catch (error) {
                 console.error("注册错误:", error);
-                // 完善错误处理
                 const errMsg = error.response?.data?.detail || error.message || "注册失败，请重试！";
                 showToast(errMsg, true);
             }
@@ -590,7 +808,7 @@
                     
                     // 隐藏登录/注册区域，显示聊天区域
                     authContainer.style.display = "none";
-                    chatContainer.style.display = "flex"; // 恢复chat-container的flex布局
+                    chatContainer.style.display = "flex";
                 }
             } catch (error) {
                 const errMsg = error.response?.data?.detail || "登录失败，请重试！";
@@ -608,6 +826,9 @@
                 <div class="message system">
                     <div class="message-avatar">🤖</div>
                     <div class="message-content">
+                        <div class="info-banner">
+                            <strong>📢 系统提示：</strong> 系统已启用缓存功能，相同内容将优先从数据库读取，节省API调用并提高响应速度。
+                        </div>
                         你好！我是谣言甄别助手，请输入需要检测的文本，我会为你分析是否为谣言以及相关推理过程。
                     </div>
                 </div>
@@ -642,6 +863,8 @@
 
         // 发送检测消息逻辑
         sendMessageBtn.addEventListener("click", async () => {
+            if (isSending) return;
+            
             const content = chatMessageInput.value.trim();
             const type = rumorTypeSelect.value;
 
@@ -653,9 +876,14 @@
 
             // 添加用户消息到聊天区域
             addMessageToChat(content, true);
+            
             // 清空输入框
             chatMessageInput.value = "";
             inputLengthHint.textContent = "0/500";
+            
+            // 设置发送状态
+            isSending = true;
+            setSendingState(true);
 
             // 调用检测接口
             try {
@@ -668,16 +896,27 @@
                 if (response.data.code === 200) {
                     const data = response.data.data;
                     // 添加系统回复消息（包含检测结果）
-                    addMessageToChat("已完成检测，结果如下：", false, data);
+                    addMessageToChat("", false, data);
+                    
+                    // 显示来源提示
+                    if (data.from_cache) {
+                        showToast(`✅ 检测完成（来自缓存，已使用 ${data.use_count} 次）`);
+                    } else {
+                        showToast("✅ 检测完成（实时分析）");
+                    }
                 }
             } catch (error) {
                 const errMsg = error.response?.data?.detail || "检测失败，请重试！";
                 addMessageToChat(`检测出错：${errMsg}`, false);
                 showToast(errMsg, true);
+            } finally {
+                // 恢复发送状态
+                isSending = false;
+                setSendingState(false);
             }
         });
 
-        // 查看历史记录逻辑（弹窗形式）
+        // 查看历史记录逻辑
         historyBtn.addEventListener("click", async () => {
             try {
                 const response = await axios.get("http://localhost:8000/api/history", {
@@ -695,9 +934,24 @@
                         historyData.forEach(item => {
                             const itemDiv = document.createElement("div");
                             itemDiv.className = "history-item";
+                            
+                            let cacheInfo = "";
+                            if (item.use_count && item.use_count > 1) {
+                                cacheInfo = `<span class="history-cache-badge">已使用 ${item.use_count} 次</span>`;
+                            }
+                            
+                            // 关键字展示
+                            let keywordsHtml = "";
+                            if (item.keywords && Array.isArray(item.keywords)) {
+                                item.keywords.forEach(keyword => {
+                                    keywordsHtml += `<span style="background:#e9ecef; padding:2px 6px; border-radius:12px; font-size:12px; margin-right:4px;">${keyword}</span>`;
+                                });
+                            }
+                            
                             itemDiv.innerHTML = `
-                                <p><strong>检测时间：</strong>${item.create_time}</p>
+                                <p><strong>检测时间：</strong>${item.last_used_time || item.create_time} ${cacheInfo}</p>
                                 <p><strong>文本：</strong>${item.content.length > 60 ? item.content.substring(0, 60) + "..." : item.content}</p>
+                                <p><strong>关键字：</strong>${keywordsHtml}</p>
                                 <p><strong>类型：</strong>${item.type}</p>
                                 <p><strong>谣言概率：</strong>${item.rumor_prob}</p>
                                 <p><strong>是否AI生成：</strong>${item.is_ai_generated ? "是" : "否"}</p>
@@ -715,9 +969,76 @@
             }
         });
 
+        // 查看缓存统计逻辑
+        statsBtn.addEventListener("click", async () => {
+            try {
+                const response = await axios.get("http://localhost:8000/api/duplicate-stats", {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
+
+                if (response.data.code === 200) {
+                    const statsData = response.data.data;
+                    statsContent.innerHTML = "";
+                    
+                    if (!statsData) {
+                        statsContent.innerHTML = "<p style='text-align:center; color:#999;'>暂无统计数据</p>";
+                    } else {
+                        statsContent.innerHTML = `
+                            <div class="stats-item">
+                                <h4>📊 总体统计</h4>
+                                <div class="stats-value">${statsData.total_records || 0}</div>
+                                <p>总检测记录</p>
+                            </div>
+                            
+                            <div class="stats-item">
+                                <h4>💾 缓存效率</h4>
+                                <div class="stats-value">${statsData.cache_hit_rate || "0%"}</div>
+                                <p>缓存命中率</p>
+                                <p>重复记录：${statsData.duplicate_records || 0} 条</p>
+                            </div>
+                            
+                            <div class="stats-item">
+                                <h4>🔥 热门检测内容</h4>
+                                <div class="stats-list">
+                                    ${statsData.most_used_contents && statsData.most_used_contents.length > 0 
+                                        ? statsData.most_used_contents.map(item => 
+                                            `<div class="stats-list-item">
+                                                <p>${item.content}</p>
+                                                <p style="font-size:12px; color:#666; margin-top:5px;">使用次数: ${item.use_count} | 最后使用: ${item.last_used}</p>
+                                            </div>`
+                                        ).join('')
+                                        : '<p style="text-align:center; color:#999;">暂无热门内容</p>'
+                                    }
+                                </div>
+                            </div>
+                            
+                            <div style="margin-top:20px; padding:10px; background:#e7f3ff; border-radius:6px; font-size:14px;">
+                                <strong>💡 说明：</strong>
+                                <p>1. 系统会自动缓存检测结果，相同内容不再重复调用大模型</p>
+                                <p>2. 缓存命中率越高，说明系统复用效率越高</p>
+                                <p>3. 每次使用缓存内容，使用次数会自动增加</p>
+                            </div>
+                        `;
+                    }
+
+                    // 显示弹窗
+                    statsModal.style.display = "flex";
+                }
+            } catch (error) {
+                console.error("获取统计信息错误:", error);
+                const errMsg = error.response?.data?.detail || "获取统计信息失败，请重试！";
+                showToast(errMsg, true);
+            }
+        });
+
         // 关闭历史记录弹窗
-        closeModalBtn.addEventListener("click", () => {
+        closeHistoryBtn.addEventListener("click", () => {
             historyModal.style.display = "none";
+        });
+
+        // 关闭统计弹窗
+        closeStatsBtn.addEventListener("click", () => {
+            statsModal.style.display = "none";
         });
 
         // 点击弹窗外部关闭
@@ -725,14 +1046,48 @@
             if (e.target === historyModal) {
                 historyModal.style.display = "none";
             }
+            if (e.target === statsModal) {
+                statsModal.style.display = "none";
+            }
         });
 
         // 按Enter键发送消息（按住Shift+Enter换行）
         chatMessageInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                sendMessageBtn.click();
+                if (!isSending) {
+                    sendMessageBtn.click();
+                }
             }
+        });
+
+        // 示例文本快速填充（可选功能）
+        function fillExampleText() {
+            const examples = [
+                "吃芹菜能降血压，每天吃一斤效果最好",
+                "手机充电时辐射会增大100倍，对健康有害",
+                "喝可乐会导致骨质疏松，容易骨折",
+                "晚上吃苹果等于吃砒霜，对身体有害",
+                "新冠病毒可以通过5G网络传播",
+                "打新冠疫苗会改变人体基因"
+            ];
+            
+            const randomExample = examples[Math.floor(Math.random() * examples.length)];
+            chatMessageInput.value = randomExample;
+            chatMessageInput.dispatchEvent(new Event('input'));
+        }
+
+        // 添加示例按钮（可选）
+        document.addEventListener('DOMContentLoaded', function() {
+            // 可以在输入框下方添加示例按钮
+            const inputArea = document.querySelector('.chat-input-area');
+            const exampleBtn = document.createElement('button');
+            exampleBtn.textContent = '填充示例文本';
+            exampleBtn.style.cssText = 'padding:6px 12px; margin-top:10px; background:#6c757d; color:white; border:none; border-radius:4px; font-size:12px; cursor:pointer;';
+            exampleBtn.onclick = fillExampleText;
+            
+            const btnContainer = document.querySelector('.send-btn-container');
+            btnContainer.parentNode.insertBefore(exampleBtn, btnContainer);
         });
     </script>
 </body>

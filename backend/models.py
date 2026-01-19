@@ -4,13 +4,18 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-# 导入数据库配置（原文件有这部分，必须保留）
+import hashlib
 from config import DB_CONFIG
 
-# 1. 初始化基础类（你提供的部分，保留）
+# 1. 初始化基础类
 Base = declarative_base()
 
-# 2. 用户表（你提供的部分，字段和原文件一致，保留）
+# 计算文本内容哈希值的函数
+def calculate_content_hash(content: str) -> str:
+    """计算文本内容的MD5哈希值，用于去重"""
+    return hashlib.md5(content.encode('utf-8')).hexdigest()
+
+# 2. 用户表
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -18,21 +23,23 @@ class User(Base):
     password = Column(String(100), nullable=False)
     create_time = Column(DateTime, default=datetime.now)
 
-# 3. 推理记录表（核心修改：新增keywords字段，你的版本正确）
+# 3. 推理记录表（添加content_hash字段用于去重）
 class ReasoningRecord(Base):
     __tablename__ = "reasoning_records"
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     content = Column(Text, nullable=False)
+    content_hash = Column(String(32), nullable=False, index=True)
     type = Column(String(50), nullable=False)
     rumor_prob = Column(DECIMAL(5,4), nullable=False)
     is_ai_generated = Column(Boolean, default=False)
     reasoning_steps = Column(Text, nullable=False)
-    # ---------------------- 新增：关键字字段 ----------------------
-    keywords = Column(Text, nullable=False)  # 存储JSON字符串格式的关键字列表
+    keywords = Column(Text, nullable=False)
+    use_count = Column(Integer, default=1)
     create_time = Column(DateTime, default=datetime.now)
+    last_used_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)  # 确保不为空
 
-# 4. 登录日志表（原文件有这部分，建议保留，不影响核心功能）
+# 4. 登录日志表
 class LoginLog(Base):
     __tablename__ = "login_logs"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -40,15 +47,13 @@ class LoginLog(Base):
     login_time = Column(DateTime, default=datetime.now)
     ip = Column(String(50), default="")
 
-# 5. 数据库连接 + 自动建表（原文件核心逻辑，必须保留）
-# 拼接数据库连接URL
+# 5. 数据库连接 + 自动建表
 DATABASE_URL = f"mysql+pymysql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
-# 创建引擎（echo=False 避免打印冗余SQL日志）
 engine = create_engine(DATABASE_URL, echo=False)
-# 创建会话工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-# 自动创建所有表（首次运行时执行，后续运行不会重复创建）
+
+# 自动创建所有表
 Base.metadata.create_all(bind=engine)
 
-# 打印提示（可选，确认建表成功）
 print("数据库表创建/更新成功！")
+print("已为reasoning_records表添加去重功能（content_hash字段）")
