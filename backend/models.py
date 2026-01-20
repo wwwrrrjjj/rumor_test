@@ -35,6 +35,7 @@ class ReasoningRecord(Base):
     is_ai_generated = Column(Boolean, default=False)
     reasoning_steps = Column(Text, nullable=False)
     keywords = Column(Text, nullable=False)
+    conclusion = Column(Text, default="")  # 新增：存储最终结论
     use_count = Column(Integer, default=1)
     create_time = Column(DateTime, default=datetime.now)
     last_used_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)  # 确保不为空

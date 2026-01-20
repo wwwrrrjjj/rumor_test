@@ -370,6 +370,8 @@ ENHANCED_PROMPT_TEMPLATE = """
   ],
   "is_ai_generated": false,
   "rumor_prob": 0.8500,
+  "is_rumor": true,
+  "conclusion": "经分析，该信息【是谣言】。",
   "confidence": "高/中/低",
   "verification_based_on_search": true/false,
   "search_result_summary": "对搜索结果的简要总结",
@@ -378,10 +380,12 @@ ENHANCED_PROMPT_TEMPLATE = """
 
 注意：
 1. rumor_prob: 谣言概率，0-1之间，保留4位小数（0=肯定是谣言，1=肯定不是谣言）
-2. confidence: 基于信息完整度的置信度
-3. verification_based_on_search: 是否基于搜索结果进行了验证
-4. 请确保推理步骤是4步
-5. 只输出JSON，不要有任何其他文字
+2. is_rumor: 是否为谣言，true表示是谣言，false表示不是谣言
+3. conclusion: 最终结论，必须明确包含【是谣言】或【不是谣言】
+4. confidence: 基于信息完整度的置信度
+5. verification_based_on_search: 是否基于搜索结果进行了验证
+6. 请确保推理步骤是4步
+7. 只输出JSON，不要有任何其他文字
 """
 
 # 原始提示词模板（无搜索结果）
@@ -396,7 +400,9 @@ PROMPT_TEMPLATE = """
     "第四步：给出最终判断结论"
   ],
   "is_ai_generated": false,
-  "rumor_prob": 0.8500
+  "rumor_prob": 0.8500,
+  "is_rumor": true,
+  "conclusion": "经分析，该信息【是谣言】。"
 }}
 
 === 输入信息 ===
@@ -409,11 +415,13 @@ PROMPT_TEMPLATE = """
 2. reasoning_steps必须包含4个步骤，每个步骤用一句简洁明了的话描述
 3. is_ai_generated判断文本是否为AI生成：true（是）或false（否）
 4. rumor_prob给出谣言概率：0-1之间的4位小数，0表示肯定是谣言，1表示肯定不是谣言
-5. 请确保分析客观、准确，基于事实和逻辑
+5. is_rumor判断是否为谣言：true表示是谣言，false表示不是谣言
+6. conclusion给出最终结论：必须明确包含【是谣言】或【不是谣言】
+7. 请确保分析客观、准确，基于事实和逻辑
 
 === 输出格式要求 ===
 只返回JSON格式的输出，不要有任何其他文字说明、注释或格式标记。
-JSON必须包含且仅包含以下字段：reasoning_steps, is_ai_generated, rumor_prob
+JSON必须包含且仅包含以下字段：reasoning_steps, is_ai_generated, rumor_prob, is_rumor, conclusion
 """
 
 # ---------------------- 工具函数 ----------------------
@@ -478,6 +486,22 @@ def find_existing_record(db: Session, content_hash: str) -> dict:
         except:
             reasoning_steps_data = []
         
+        # 获取结论（如果存储了的话）
+        conclusion = ""
+        try:
+            if existing_record.conclusion:
+                conclusion = existing_record.conclusion
+            else:
+                # 如果没有存储结论，根据谣言概率生成
+                if existing_record.rumor_prob >= 0.7:
+                    conclusion = "经分析，该信息【是谣言】。"
+                elif existing_record.rumor_prob <= 0.3:
+                    conclusion = "经分析，该信息【不是谣言】。"
+                else:
+                    conclusion = "经分析，该信息可能为谣言，建议进一步核实。"
+        except:
+            conclusion = "经分析，该信息【结论待定】。"
+        
         return {
             "rumor_prob": round(float(existing_record.rumor_prob), 4),
             "is_ai_generated": existing_record.is_ai_generated,
@@ -485,13 +509,17 @@ def find_existing_record(db: Session, content_hash: str) -> dict:
             "keywords": keywords_data,
             "from_cache": True,
             "use_count": existing_record.use_count,
-            "record_id": existing_record.id
+            "record_id": existing_record.id,
+            "is_rumor": existing_record.rumor_prob >= 0.5,
+            "conclusion": conclusion
         }
     return None
 
 # 6. 模拟大语言模型检测
 def fake_llm_detect(content: str, type: str, keywords: list):
     rumor_prob = round(random.uniform(0, 1), 4)
+    is_rumor = rumor_prob >= 0.5
+    conclusion = "经分析，该信息【是谣言】。" if is_rumor else "经分析，该信息【不是谣言】。"
     reasoning_steps = [
         f"识别内容：{content[:20]}...（类型：{type}）",
         f"检查事实：{'符合客观事实' if rumor_prob < 0.5 else '不符合客观事实'}",
@@ -504,7 +532,9 @@ def fake_llm_detect(content: str, type: str, keywords: list):
         "is_ai_generated": random.choice([True, False]),
         "reasoning_steps": reasoning_steps,
         "from_cache": False,
-        "search_used": False
+        "search_used": False,
+        "is_rumor": is_rumor,
+        "conclusion": conclusion
     }
 
 # 7. 判断是否需要联网搜索
@@ -732,7 +762,7 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
             raise Exception("JSON解析失败")
         
         # 补全字段
-        required_fields = ["reasoning_steps", "is_ai_generated", "rumor_prob"]
+        required_fields = ["reasoning_steps", "is_ai_generated", "rumor_prob", "is_rumor", "conclusion"]
         for field in required_fields:
             if field not in result:
                 print(f"⚠️ 缺失字段: {field}，使用默认值")
@@ -742,6 +772,11 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
                     result[field] = False
                 elif field == "rumor_prob":
                     result[field] = 0.5000
+                elif field == "is_rumor":
+                    result[field] = result.get("rumor_prob", 0.5) >= 0.5
+                elif field == "conclusion":
+                    is_rumor = result.get("is_rumor", result.get("rumor_prob", 0.5) >= 0.5)
+                    result[field] = "经分析，该信息【是谣言】。" if is_rumor else "经分析，该信息【不是谣言】。"
         
         # 确保推理步骤是4步
         if "reasoning_steps" in result:
@@ -764,6 +799,20 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
             except Exception as e:
                 print(f"⚠️ 谣言概率格式错误: {result['rumor_prob']}，使用默认值0.5")
                 result["rumor_prob"] = 0.5000
+        
+        # 确保结论字段格式正确
+        if "conclusion" not in result or not result["conclusion"]:
+            is_rumor = result.get("is_rumor", result.get("rumor_prob", 0.5) >= 0.5)
+            result["conclusion"] = "经分析，该信息【是谣言】。" if is_rumor else "经分析，该信息【不是谣言】。"
+        
+        # 确保结论包含明确判断
+        if "【是谣言】" not in result["conclusion"] and "【不是谣言】" not in result["conclusion"]:
+            is_rumor = result.get("is_rumor", result.get("rumor_prob", 0.5) >= 0.5)
+            result["conclusion"] = "经分析，该信息【是谣言】。" if is_rumor else "经分析，该信息【不是谣言】。"
+        
+        # 确保is_rumor字段与结论一致
+        if "is_rumor" not in result:
+            result["is_rumor"] = "【是谣言】" in result["conclusion"]
         
         # 添加额外字段
         result["from_cache"] = False
@@ -793,7 +842,7 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
         if "verification_suggestions" not in result:
             result["verification_suggestions"] = ["建议进一步核实信息来源"]
         
-        print(f"✅ 增强检测完成，谣言概率: {result['rumor_prob']}")
+        print(f"✅ 增强检测完成，谣言概率: {result['rumor_prob']}, 结论: {result['conclusion']}")
         return result
         
     except Exception as e:
@@ -914,7 +963,7 @@ def real_llm_detect(content: str, type: str, keywords: list):
             raise Exception("JSON解析失败")
         
         # 补全字段
-        required_fields = ["reasoning_steps", "is_ai_generated", "rumor_prob"]
+        required_fields = ["reasoning_steps", "is_ai_generated", "rumor_prob", "is_rumor", "conclusion"]
         for field in required_fields:
             if field not in result:
                 print(f"⚠️ 缺失字段（原始模式）: {field}，使用默认值")
@@ -924,6 +973,11 @@ def real_llm_detect(content: str, type: str, keywords: list):
                     result[field] = False
                 elif field == "rumor_prob":
                     result[field] = 0.5000
+                elif field == "is_rumor":
+                    result[field] = result.get("rumor_prob", 0.5) >= 0.5
+                elif field == "conclusion":
+                    is_rumor = result.get("is_rumor", result.get("rumor_prob", 0.5) >= 0.5)
+                    result[field] = "经分析，该信息【是谣言】。" if is_rumor else "经分析，该信息【不是谣言】。"
         
         # 确保推理步骤是4步
         if "reasoning_steps" in result:
@@ -947,12 +1001,26 @@ def real_llm_detect(content: str, type: str, keywords: list):
                 print(f"⚠️ 谣言概率格式错误（原始模式）: {result['rumor_prob']}，使用默认值0.5")
                 result["rumor_prob"] = 0.5000
         
+        # 确保结论字段格式正确
+        if "conclusion" not in result or not result["conclusion"]:
+            is_rumor = result.get("is_rumor", result.get("rumor_prob", 0.5) >= 0.5)
+            result["conclusion"] = "经分析，该信息【是谣言】。" if is_rumor else "经分析，该信息【不是谣言】。"
+        
+        # 确保结论包含明确判断
+        if "【是谣言】" not in result["conclusion"] and "【不是谣言】" not in result["conclusion"]:
+            is_rumor = result.get("is_rumor", result.get("rumor_prob", 0.5) >= 0.5)
+            result["conclusion"] = "经分析，该信息【是谣言】。" if is_rumor else "经分析，该信息【不是谣言】。"
+        
+        # 确保is_rumor字段与结论一致
+        if "is_rumor" not in result:
+            result["is_rumor"] = "【是谣言】" in result["conclusion"]
+        
         result["from_cache"] = False
         result["web_context_used"] = False
         result["search_used"] = False
         result["search_result_count"] = 0
         
-        print(f"✅ 原始检测完成，谣言概率: {result['rumor_prob']}")
+        print(f"✅ 原始检测完成，谣言概率: {result['rumor_prob']}, 结论: {result['conclusion']}")
         return result
         
     except Exception as e:
@@ -963,6 +1031,8 @@ def real_llm_detect(content: str, type: str, keywords: list):
             "reasoning_steps": ["识别内容：模型调用异常", "检查事实：检测失败", "评估合理性：无法判断", "得出结论：信息不足"],
             "is_ai_generated": False,
             "rumor_prob": 0.5000,
+            "is_rumor": False,
+            "conclusion": "经分析，该信息【检测失败，请重试】。",
             "from_cache": False,
             "web_context_used": False,
             "search_used": False,
@@ -1092,7 +1162,9 @@ def detect(
                 "from_cache": True,
                 "use_count": existing_record["use_count"],
                 "web_context_used": False,
-                "search_used": False
+                "search_used": False,
+                "is_rumor": existing_record["is_rumor"],
+                "conclusion": existing_record["conclusion"]
             }
         }
     
@@ -1122,7 +1194,8 @@ def detect(
             keywords=json.dumps(keywords, ensure_ascii=False),
             use_count=1,
             create_time=datetime.now(),
-            last_used_time=datetime.now()
+            last_used_time=datetime.now(),
+            conclusion=llm_result.get("conclusion", "")
         )
         db.add(record)
         db.commit()
@@ -1141,7 +1214,9 @@ def detect(
         "from_cache": False,
         "use_count": 1,
         "web_context_used": llm_result.get("web_context_used", False),
-        "search_used": llm_result.get("search_used", False)
+        "search_used": llm_result.get("search_used", False),
+        "is_rumor": llm_result.get("is_rumor", llm_result["rumor_prob"] >= 0.5),
+        "conclusion": llm_result.get("conclusion", "经分析，该信息【结论待定】。")
     }
     
     # 添加额外字段（如果存在）
@@ -1201,6 +1276,19 @@ def get_history(
         except:
             reasoning_steps_data = []
         
+        # 获取结论
+        conclusion = ""
+        if r.conclusion:
+            conclusion = r.conclusion
+        else:
+            # 如果没有存储结论，根据谣言概率生成
+            if r.rumor_prob >= 0.7:
+                conclusion = "经分析，该信息【是谣言】。"
+            elif r.rumor_prob <= 0.3:
+                conclusion = "经分析，该信息【不是谣言】。"
+            else:
+                conclusion = "经分析，该信息可能为谣言，建议进一步核实。"
+        
         history_list.append({
             "record_id": r.id,
             "content": r.content,
@@ -1212,7 +1300,8 @@ def get_history(
             "reasoning_steps": reasoning_steps_data,
             "use_count": r.use_count,
             "create_time": r.create_time.strftime("%Y-%m-%d %H:%M:%S") if r.create_time else "",
-            "last_used_time": r.last_used_time.strftime("%Y-%m-%d %H:%M:%S") if r.last_used_time else ""
+            "last_used_time": r.last_used_time.strftime("%Y-%m-%d %H:%M:%S") if r.last_used_time else "",
+            "conclusion": conclusion
         })
     total = db.query(ReasoningRecord).filter(ReasoningRecord.user_id == user_id).count()
     return {
@@ -1251,7 +1340,8 @@ def get_duplicate_stats(
         most_used_list.append({
             "content": record.content[:50] + "..." if len(record.content) > 50 else record.content,
             "use_count": record.use_count,
-            "last_used": record.last_used_time.strftime("%Y-%m-%d %H:%M:%S") if record.last_used_time else ""
+            "last_used": record.last_used_time.strftime("%Y-%m-%d %H:%M:%S") if record.last_used_time else "",
+            "conclusion": record.conclusion if record.conclusion else ("【是谣言】" if record.rumor_prob >= 0.5 else "【不是谣言】")
         })
     
     # 统计缓存命中率
@@ -1339,6 +1429,7 @@ if __name__ == "__main__":
         print("✓ content_hash字段已添加")
         print("✓ use_count字段已添加")
         print("✓ last_used_time字段已添加")
+        print("✓ conclusion字段已添加")
         print("✓ 去重查询功能已启用")
         
     except Exception as e:

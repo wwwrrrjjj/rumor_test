@@ -796,6 +796,11 @@
                     ${keywordsHtml}
                     <p><strong>📈 谣言概率：</strong><span class="${rumorProbClass}">${resultData.rumor_prob || 0.5000}</span></p>
                     <p><strong>🤖 是否AI生成：</strong>${aiGeneratedText}</p>
+                    <!-- 新增：明确显示是否为谣言 -->
+                    <div style="margin: 15px 0; padding: 12px; background: ${resultData.is_rumor ? '#f8d7da' : '#d1ecf1'}; border-radius: 6px; border-left: 4px solid ${resultData.is_rumor ? '#dc3545' : '#17a2b8'};">
+                    <strong style="font-size: 16px; color: ${resultData.is_rumor ? '#721c24' : '#0c5460'};">📢 最终判断：</strong>
+                    <p style="margin: 8px 0 0 0; font-size: 16px; font-weight: bold; color: ${resultData.is_rumor ? '#dc3545' : '#28a745'};">${resultData.conclusion || (resultData.is_rumor ? '经分析，该信息【是谣言】。' : '经分析，该信息【不是谣言】。')}</p>
+                    </div>
                     ${verificationInfo}
                     <p><strong>🧠 推理过程：</strong></p>
                     ${reasoningStepsHtml}
@@ -1047,124 +1052,135 @@
             }
         });
 
-        // 查看历史记录逻辑
-        historyBtn.addEventListener("click", async () => {
-            try {
-                const response = await axios.get("http://localhost:8000/api/history", {
-                    headers: { "Authorization": `Bearer ${token}` },
-                    params: { page: 1, size: 20 }
-                });
+// 查看历史记录逻辑
+historyBtn.addEventListener("click", async () => {
+    try {
+        const response = await axios.get("http://localhost:8000/api/history", {
+            headers: { "Authorization": `Bearer ${token}` },
+            params: { page: 1, size: 20 }
+        });
 
-                if (response.data.code === 200) {
-                    const historyData = response.data.data.list;
-                    historyList.innerHTML = "";
+        if (response.data.code === 200) {
+            const historyData = response.data.data.list;
+            historyList.innerHTML = "";
 
-                    if (historyData.length === 0) {
-                        historyList.innerHTML = "<p style='text-align:center; color:#999;'>暂无检测记录</p>";
-                    } else {
-                        historyData.forEach(item => {
-                            const itemDiv = document.createElement("div");
-                            itemDiv.className = "history-item";
-                            
-                            let cacheInfo = "";
-                            if (item.use_count && item.use_count > 1) {
-                                cacheInfo = `<span class="history-cache-badge">已使用 ${item.use_count} 次</span>`;
-                            }
-                            
-                            // 关键字展示
-                            let keywordsHtml = "";
-                            if (item.keywords && Array.isArray(item.keywords)) {
-                                item.keywords.forEach(keyword => {
-                                    keywordsHtml += `<span style="background:#e9ecef; padding:2px 6px; border-radius:12px; font-size:12px; margin-right:4px;">${keyword}</span>`;
-                                });
-                            }
-                            
-                            // 谣言概率颜色
-                            const rumorProbClass = getRumorProbClass(item.rumor_prob || 0.5);
-                            
-                            itemDiv.innerHTML = `
-                                <p><strong>检测时间：</strong>${item.last_used_time || item.create_time} ${cacheInfo}</p>
-                                <p><strong>文本：</strong>${item.content.length > 60 ? item.content.substring(0, 60) + "..." : item.content}</p>
-                                <p><strong>关键字：</strong>${keywordsHtml}</p>
-                                <p><strong>类型：</strong>${item.type}</p>
-                                <p><strong>谣言概率：</strong><span class="${rumorProbClass}">${item.rumor_prob}</span></p>
-                                <p><strong>是否AI生成：</strong>${item.is_ai_generated ? "是" : "否"}</p>
-                            `;
-                            historyList.appendChild(itemDiv);
+            if (historyData.length === 0) {
+                historyList.innerHTML = "<p style='text-align:center; color:#999;'>暂无检测记录</p>";
+            } else {
+                historyData.forEach(item => {
+                    const itemDiv = document.createElement("div");
+                    itemDiv.className = "history-item";
+                    
+                    let cacheInfo = "";
+                    if (item.use_count && item.use_count > 1) {
+                        cacheInfo = `<span class="history-cache-badge">已使用 ${item.use_count} 次</span>`;
+                    }
+                    
+                    // 关键字展示
+                    let keywordsHtml = "";
+                    if (item.keywords && Array.isArray(item.keywords)) {
+                        item.keywords.forEach(keyword => {
+                            keywordsHtml += `<span style="background:#e9ecef; padding:2px 6px; border-radius:12px; font-size:12px; margin-right:4px;">${keyword}</span>`;
                         });
                     }
-
-                    // 显示弹窗
-                    historyModal.style.display = "flex";
-                }
-            } catch (error) {
-                const errMsg = error.response?.data?.detail || "查询历史失败，请重试！";
-                showToast(errMsg, true);
-            }
-        });
-
-        // 查看缓存统计逻辑
-        statsBtn.addEventListener("click", async () => {
-            try {
-                const response = await axios.get("http://localhost:8000/api/duplicate-stats", {
-                    headers: { "Authorization": `Bearer ${token}` }
-                });
-
-                if (response.data.code === 200) {
-                    const statsData = response.data.data;
-                    statsContent.innerHTML = "";
                     
-                    if (!statsData) {
-                        statsContent.innerHTML = "<p style='text-align:center; color:#999;'>暂无统计数据</p>";
-                    } else {
-                        statsContent.innerHTML = `
-                            <div class="stats-item">
-                                <h4>📊 总体统计</h4>
-                                <div class="stats-value">${statsData.total_records || 0}</div>
-                                <p>总检测记录</p>
-                            </div>
-                            
-                            <div class="stats-item">
-                                <h4>💾 缓存效率</h4>
-                                <div class="stats-value">${statsData.cache_hit_rate || "0%"}</div>
-                                <p>缓存命中率</p>
-                                <p>重复记录：${statsData.duplicate_records || 0} 条</p>
-                            </div>
-                            
-                            <div class="stats-item">
-                                <h4>🔥 热门检测内容</h4>
-                                <div class="stats-list">
-                                    ${statsData.most_used_contents && statsData.most_used_contents.length > 0 
-                                        ? statsData.most_used_contents.map(item => 
-                                            `<div class="stats-list-item">
-                                                <p>${item.content}</p>
-                                                <p style="font-size:12px; color:#666; margin-top:5px;">使用次数: ${item.use_count} | 最后使用: ${item.last_used}</p>
-                                            </div>`
-                                        ).join('')
-                                        : '<p style="text-align:center; color:#999;">暂无热门内容</p>'
-                                    }
-                                </div>
-                            </div>
-                            
-                            <div style="margin-top:20px; padding:10px; background:#e7f3ff; border-radius:6px; font-size:14px;">
-                                <strong>💡 说明：</strong>
-                                <p>1. 系统会自动缓存检测结果，相同内容不再重复调用大模型</p>
-                                <p>2. 缓存命中率越高，说明系统复用效率越高</p>
-                                <p>3. 每次使用缓存内容，使用次数会自动增加</p>
-                            </div>
-                        `;
-                    }
-
-                    // 显示弹窗
-                    statsModal.style.display = "flex";
-                }
-            } catch (error) {
-                console.error("获取统计信息错误:", error);
-                const errMsg = error.response?.data?.detail || "获取统计信息失败，请重试！";
-                showToast(errMsg, true);
+                    // 谣言概率颜色
+                    const rumorProbClass = getRumorProbClass(item.rumor_prob || 0.5);
+                    
+                    // 结论显示样式
+                    const conclusion = item.conclusion || (item.rumor_prob >= 0.5 ? "经分析，该信息【是谣言】。" : "经分析，该信息【不是谣言】。");
+                    const isRumor = conclusion.includes("【是谣言】");
+                    const conclusionStyle = `style="margin: 8px 0; padding: 8px; background: ${isRumor ? '#f8d7da' : '#d1ecf1'}; border-radius: 4px; border-left: 4px solid ${isRumor ? '#dc3545' : '#28a745'};"`;
+                    
+                    itemDiv.innerHTML = `
+                        <p><strong>检测时间：</strong>${item.last_used_time || item.create_time} ${cacheInfo}</p>
+                        <p><strong>文本：</strong>${item.content.length > 60 ? item.content.substring(0, 60) + "..." : item.content}</p>
+                        <div ${conclusionStyle}>
+                            <strong>📢 结论：</strong>${conclusion}
+                        </div>
+                        <p><strong>关键字：</strong>${keywordsHtml}</p>
+                        <p><strong>类型：</strong>${item.type}</p>
+                        <p><strong>谣言概率：</strong><span class="${rumorProbClass}">${item.rumor_prob}</span></p>
+                        <p><strong>是否AI生成：</strong>${item.is_ai_generated ? "是" : "否"}</p>
+                    `;
+                    historyList.appendChild(itemDiv);
+                });
             }
+
+            // 显示弹窗
+            historyModal.style.display = "flex";
+        }
+    } catch (error) {
+        const errMsg = error.response?.data?.detail || "查询历史失败，请重试！";
+        showToast(errMsg, true);
+    }
+});
+
+// 查看缓存统计逻辑
+statsBtn.addEventListener("click", async () => {
+    try {
+        const response = await axios.get("http://localhost:8000/api/duplicate-stats", {
+            headers: { "Authorization": `Bearer ${token}` }
         });
 
+        if (response.data.code === 200) {
+            const statsData = response.data.data;
+            statsContent.innerHTML = "";
+            
+            if (!statsData) {
+                statsContent.innerHTML = "<p style='text-align:center; color:#999;'>暂无统计数据</p>";
+            } else {
+                statsContent.innerHTML = `
+                    <div class="stats-item">
+                        <h4>📊 总体统计</h4>
+                        <div class="stats-value">${statsData.total_records || 0}</div>
+                        <p>总检测记录</p>
+                    </div>
+                    
+                    <div class="stats-item">
+                        <h4>💾 缓存效率</h4>
+                        <div class="stats-value">${statsData.cache_hit_rate || "0%"}</div>
+                        <p>缓存命中率</p>
+                        <p>重复记录：${statsData.duplicate_records || 0} 条</p>
+                    </div>
+                    
+                    <div class="stats-item">
+                        <h4>🔥 热门检测内容</h4>
+                        <div class="stats-list">
+                            ${statsData.most_used_contents && statsData.most_used_contents.length > 0 
+                                ? statsData.most_used_contents.map(item => 
+                                    `<div class="stats-list-item">
+                                        <p>${item.content}</p>
+                                        <p style="font-size:14px; color:#333; margin-top:5px; padding: 5px; background: ${item.conclusion.includes('【是谣言】') ? '#f8d7da' : '#d1ecf1'}; border-radius: 4px;">
+                                            <strong>结论：</strong>${item.conclusion}
+                                        </p>
+                                        <p style="font-size:12px; color:#666; margin-top:5px;">使用次数: ${item.use_count} | 最后使用: ${item.last_used}</p>
+                                    </div>`
+                                ).join('')
+                                : '<p style="text-align:center; color:#999;">暂无热门内容</p>'
+                            }
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top:20px; padding:10px; background:#e7f3ff; border-radius:6px; font-size:14px;">
+                        <strong>💡 说明：</strong>
+                        <p>1. 系统会自动缓存检测结果，相同内容不再重复调用大模型</p>
+                        <p>2. 缓存命中率越高，说明系统复用效率越高</p>
+                        <p>3. 每次使用缓存内容，使用次数会自动增加</p>
+                        <p>4. 结论会明确显示【是谣言】或【不是谣言】</p>
+                    </div>
+                `;
+            }
+
+            // 显示弹窗
+            statsModal.style.display = "flex";
+        }
+    } catch (error) {
+        console.error("获取统计信息错误:", error);
+        const errMsg = error.response?.data?.detail || "获取统计信息失败，请重试！";
+        showToast(errMsg, true);
+    }
+});
         // 关闭历史记录弹窗
         closeHistoryBtn.addEventListener("click", () => {
             historyModal.style.display = "none";
