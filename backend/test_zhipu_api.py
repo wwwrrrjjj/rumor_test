@@ -1,6 +1,6 @@
 from zhipuai import ZhipuAI
 
-# 替换为你的智谱AI API Key
+# 智谱AI API Key
 API_KEY = "0a3238e655184f7e9aa9360671979cc6.uMhPGKLm6GEyjtHm"
 
 def test_zhipu_api():

@@ -1,4 +1,4 @@
-# backend/main.py（完整修复版）- 使用DuckDuckGo搜索
+# backend/main.py
 from fastapi import FastAPI, Depends, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -18,11 +18,97 @@ import hashlib
 import requests
 import time
 import traceback
-
-# 导入自己的配置和模型
+import calendar
+from datetime import datetime
 import config
 from models import Base, SessionLocal, User, ReasoningRecord, LoginLog
-
+# ---------------------- 事实查询模块 ----------------------
+class FactChecker:
+    """事实检查器，处理简单事实查询"""
+    
+    @staticmethod
+    def check_simple_facts(content: str) -> dict:
+        """
+        检查简单的事实性陈述
+        返回：{"is_factual": bool, "correction": str, "certainty": float}
+        """
+        content_lower = content.lower()
+        
+        # 检查日期相关
+        current_time = datetime.now()
+        current_year = current_time.year
+        current_month = current_time.month
+        current_day = current_time.day
+        current_weekday = current_time.weekday()  # 0=Monday, 6=Sunday
+        
+        weekdays_chinese = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+        current_weekday_chinese = weekdays_chinese[current_weekday]
+        
+        # 常见日期模式匹配
+        date_patterns = [
+            (r'今天.*星期[一二三四五六日天]', f"今天是{current_weekday_chinese}"),
+            (r'今天.*周[一二三四五六日天]', f"今天是{current_weekday_chinese}"),
+            (r'今天是.*星期几', f"今天是{current_weekday_chinese}"),
+            (r'现在.*星期[一二三四五六日天]', f"现在是{current_weekday_chinese}"),
+            (r'今天是\d+年\d+月\d+日', f"今天是{current_year}年{current_month}月{current_day}日"),
+            (r'现在是\d+年', f"现在是{current_year}年"),
+            (r'今年.*\d+岁', None),  # 年龄相关，需要更复杂处理
+        ]
+        
+        for pattern, correction in date_patterns:
+            if re.search(pattern, content_lower):
+                if correction:
+                    return {
+                        "is_factual": content_lower in correction.lower(),
+                        "correction": correction,
+                        "certainty": 1.0,
+                        "fact_type": "日期时间"
+                    }
+        
+        # 检查常识性事实
+        common_facts = {
+            "太阳从东边升起": True,
+            "地球是圆的": True,
+            "水在0摄氏度结冰": True,
+            "1+1等于2": True,
+            "人需要呼吸氧气": True,
+            "鱼生活在水里": True,
+            "鸟会飞": True,
+        }
+        
+        for fact, is_true in common_facts.items():
+            if fact in content:
+                return {
+                    "is_factual": is_true,
+                    "correction": f"{fact}是{'' if is_true else '不'}正确的",
+                    "certainty": 0.95,
+                    "fact_type": "常识"
+                }
+        
+        # 检查明显错误的常识
+        false_facts = {
+            "太阳从西边升起": "太阳从东边升起",
+            "地球是平的": "地球是近似球体",
+            "水在100摄氏度结冰": "水在0摄氏度结冰，100摄氏度沸腾",
+            "1+1等于3": "1+1等于2",
+            "人不需要氧气": "人类需要氧气进行呼吸",
+        }
+        
+        for false_fact, correction in false_facts.items():
+            if false_fact in content:
+                return {
+                    "is_factual": False,
+                    "correction": f"正确说法是：{correction}",
+                    "certainty": 0.99,
+                    "fact_type": "常识纠错"
+                }
+        
+        return {
+            "is_factual": None,
+            "correction": "",
+            "certainty": 0.0,
+            "fact_type": "无法判断"
+        }
 # ---------------------- DuckDuckGo 搜索客户端 ----------------------
 try:
     from duckduckgo_search import DDGS
@@ -336,6 +422,7 @@ def extract_keywords_with_jieba(content: str, top_k: int = 8) -> list:
 
 # ---------------------- 大语言模型提示词模板 ----------------------
 # 增强的提示词模板（带DuckDuckGo搜索结果分析）
+# 修改 ENHANCED_PROMPT_TEMPLATE 中的概率部分
 ENHANCED_PROMPT_TEMPLATE = """
 你是一位专业的谣言甄别专家。请基于以下信息进行分析：
 
@@ -348,16 +435,26 @@ ENHANCED_PROMPT_TEMPLATE = """
 {search_summary}
 
 === 分析要求 ===
-1. 首先分析文本中的核心声明
+1. 首先分析文本中的核心声明，区分信息性质：判断它是“一个需要核实的新传言”，还是一个“对既有事实的陈述”。
 2. 参考搜索结果中的信息进行事实核查
 3. 评估声明的逻辑一致性和合理性
 4. 综合搜索结果和逻辑分析给出判断
+对于“既有事实陈述”，特别是包含以下特征的信息，应倾向于认为其可信：
+   - 包含明确的时间（如“2025年8月”）、地点（如“成都”）、机构名称（如“国家航天局”）。
+   - 描述的是已完成的、有官方记录的公共事件（如已举办的赛事、已发布的国家政策、已完成的科学任务）。
+   - 语言风格客观、平实，符合新闻报道特征。
+对于符合上述特征的“既有事实”，应优先通过网络搜索或常识进行验证，而非直接质疑其真实性。
+评估逻辑时，需考虑该事件发生的合理性与是否符合公开日程。
+=== 概率计算标准 ===
+请根据证据强度给出精确的概率值（0.0000-1.0000）：
+- 0.9000-1.0000: 有确凿证据证明是谣言
+- 0.7000-0.9000: 有较强证据表明是谣言
+- 0.5000-0.7000: 可能是谣言，证据不足
+- 0.3000-0.5000: 可能不是谣言
+- 0.1000-0.3000: 很可能不是谣言
+- 0.0000-0.1000: 有确凿证据证明不是谣言
 
-=== 搜索结果分析指南 ===
-- 如果搜索结果包含明确的辟谣信息，考虑声明为谣言的可能性较高
-- 如果搜索结果证实了声明，考虑声明为真实的的可能性较高
-- 如果搜索结果没有相关信息，基于逻辑和常识判断
-- 注意搜索结果的来源和可信度
+**重要：不要固定使用0.8500或0.1500，根据证据强度动态调整**
 
 === 输出格式 ===
 严格按以下JSON格式输出：
@@ -369,7 +466,7 @@ ENHANCED_PROMPT_TEMPLATE = """
     "第四步：综合给出判断结论"
   ],
   "is_ai_generated": false,
-  "rumor_prob": 0.8500,
+  "rumor_prob": 0.7236,  # ⚠️ 注意：这是示例，请根据实际分析计算
   "is_rumor": true,
   "conclusion": "经分析，该信息【是谣言】。",
   "confidence": "高/中/低",
@@ -377,15 +474,6 @@ ENHANCED_PROMPT_TEMPLATE = """
   "search_result_summary": "对搜索结果的简要总结",
   "key_findings_from_search": ["发现1", "发现2"]
 }}
-
-注意：
-1. rumor_prob: 谣言概率，0-1之间，保留4位小数（0=肯定是谣言，1=肯定不是谣言）
-2. is_rumor: 是否为谣言，true表示是谣言，false表示不是谣言
-3. conclusion: 最终结论，必须明确包含【是谣言】或【不是谣言】
-4. confidence: 基于信息完整度的置信度
-5. verification_based_on_search: 是否基于搜索结果进行了验证
-6. 请确保推理步骤是4步
-7. 只输出JSON，不要有任何其他文字
 """
 
 # 原始提示词模板（无搜索结果）
@@ -422,6 +510,16 @@ PROMPT_TEMPLATE = """
 === 输出格式要求 ===
 只返回JSON格式的输出，不要有任何其他文字说明、注释或格式标记。
 JSON必须包含且仅包含以下字段：reasoning_steps, is_ai_generated, rumor_prob, is_rumor, conclusion
+=== 概率计算指南 ===
+请根据以下标准给出概率值：
+- 0.9-1.0: 几乎肯定是谣言，有明显证据
+- 0.7-0.9: 很可能是谣言，有较强证据
+- 0.5-0.7: 可能是谣言，证据不充分
+- 0.3-0.5: 可能不是谣言
+- 0.1-0.3: 很可能不是谣言
+- 0.0-0.1: 几乎肯定不是谣言
+
+请基于分析给出精确到4位小数的概率值,不要总是使用0.85或0.15。
 """
 
 # ---------------------- 工具函数 ----------------------
@@ -549,8 +647,8 @@ def should_enable_web_search(content: str, keywords: list) -> bool:
         return False
     
     # 如果内容太短
-    if len(content) < 15:
-        return False
+    if len(content) > 8:
+        return True
     
     # 检查是否包含可验证的声明
     verification_triggers = [
@@ -585,7 +683,7 @@ def should_enable_web_search(content: str, keywords: list) -> bool:
     if any(word in content_lower for word in ["科技", "发明", "新技术", "突破"]):
         return True
     
-    return False
+    return True
 
 # 8. 执行DuckDuckGo搜索并格式化结果
 def perform_web_search(content: str, keywords: list) -> dict:
@@ -648,7 +746,40 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
     """增强的检测函数，包含DuckDuckGo搜索"""
     try:
         print(f"📝 调用GLM-4模型API，内容长度: {len(content)}")
+        fact_check_result = FactChecker.check_simple_facts(content)
+        print(f"🔍 事实检查结果: {fact_check_result}")
         
+        # 如果事实检查有确定结果，优先使用
+        if fact_check_result["certainty"] > 0.9 and fact_check_result["is_factual"] is not None:
+            print(f"✅ 使用事实检查结果，确定性: {fact_check_result['certainty']}")
+            
+            is_rumor = not fact_check_result["is_factual"]
+            rumor_prob = 0.9 if is_rumor else 0.1  # 事实错误就是高概率谣言
+            
+            reasoning_steps = [
+                f"第一步：识别内容中的事实陈述",
+                f"第二步：查询客观事实（{fact_check_result['fact_type']}）",
+                f"第三步：对比事实：{fact_check_result['correction']}",
+                f"第四步：基于客观事实得出结论"
+            ]
+            
+            conclusion = f"经客观事实核查，该信息{'【是谣言】' if is_rumor else '【不是谣言】'}。{fact_check_result['correction']}"
+            
+            return {
+                "reasoning_steps": reasoning_steps,
+                "is_ai_generated": False,
+                "rumor_prob": rumor_prob,
+                "is_rumor": is_rumor,
+                "conclusion": conclusion,
+                "from_cache": False,
+                "web_context_used": False,
+                "search_used": False,
+                "search_result_count": 0,
+                "confidence": "高",
+                "verification_based_on_search": False,
+                "fact_check_used": True,
+                "fact_check_result": fact_check_result
+            }
         # 判断是否需要联网搜索
         should_search = should_enable_web_search(content, keywords)
         web_context = {"success": False, "summary": "", "results": []}
@@ -1366,7 +1497,7 @@ def get_duplicate_stats(
         }
     }
 
-# ---------------------- 新增：检查搜索状态接口 ----------------------
+# ---------------------- 检查搜索状态接口 ----------------------
 @app.get("/api/search-status")
 def get_search_status():
     """检查DuckDuckGo搜索功能状态"""
@@ -1425,12 +1556,6 @@ if __name__ == "__main__":
         print(f"✓ 最大查询数: {config.SEARCH_CONFIG.get('max_queries', 2)}")
         print(f"✓ 超时时间: {config.SEARCH_CONFIG.get('timeout', 15)}秒")
         
-        print("\n=== 数据库去重功能状态 ===")
-        print("✓ content_hash字段已添加")
-        print("✓ use_count字段已添加")
-        print("✓ last_used_time字段已添加")
-        print("✓ conclusion字段已添加")
-        print("✓ 去重查询功能已启用")
         
     except Exception as e:
         print(f"❌ 数据库初始化失败：{str(e)}")
@@ -1439,13 +1564,13 @@ if __name__ == "__main__":
         db.close()
     
     print(f"\n=== 谣言甄别系统后端启动 ===")
-    print(f"📱 模型配置: {config.LLM_CONFIG['model_name']}")
-    print(f"🔍 DuckDuckGo搜索: {'已启用' if config.SEARCH_CONFIG.get('enable', True) and DUCKDUCKGO_AVAILABLE else '未启用'}")
-    print(f"💾 去重功能: 已启用")
-    print(f"🤖 LLM_FAKE模式: {config.LLM_FAKE}")
-    print(f"🌐 服务地址: http://localhost:8000")
-    print(f"📚 API文档: http://localhost:8000/docs")
-    print(f"🔍 搜索状态检查: http://localhost:8000/api/search-status")
+    print(f" 模型配置: {config.LLM_CONFIG['model_name']}")
+    print(f" DuckDuckGo搜索: {'已启用' if config.SEARCH_CONFIG.get('enable', True) and DUCKDUCKGO_AVAILABLE else '未启用'}")
+    print(f" 去重功能: 已启用")
+    print(f" LLM_FAKE模式: {config.LLM_FAKE}")
+    print(f" 服务地址: http://localhost:8000")
+    print(f" API文档: http://localhost:8000/docs")
+    print(f" 搜索状态检查: http://localhost:8000/api/search-status")
     
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
