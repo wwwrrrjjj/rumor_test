@@ -1,4 +1,4 @@
-# backend/main.py（完整修复版）- 使用DuckDuckGo搜索
+# backend/main.py（完整修改版）
 from fastapi import FastAPI, Depends, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -17,173 +17,248 @@ import re
 import hashlib
 import requests
 import time
-import traceback
+from search_service import SearchService
+search_service = SearchService()
+
+# 修改检测逻辑
+def enhanced_detect(content: str, type: str, keywords: list):
+    """增强检测"""
+    # 判断是否需要搜索
+    if should_search(content, keywords):
+        web_results = search_service.search_rumor(content, keywords)
+        # 构建包含搜索结果的提示词
+        prompt = build_prompt_with_search(content, type, keywords, web_results)
+    else:
+        prompt = build_prompt(content, type, keywords)
+    
+    # 调用GLM-4
+    return call_glm4(prompt)
+
+def should_search(content: str, keywords: list) -> bool:
+    """判断是否需要搜索"""
+    # 简单逻辑：内容较长且有关键词
+    return len(content) > 20 and len(keywords) >= 2
 
 # 导入自己的配置和模型
 import config
 from models import Base, SessionLocal, User, ReasoningRecord, LoginLog
 
-# ---------------------- DuckDuckGo 搜索客户端 ----------------------
+# ---------------------- MCP 联网搜索客户端（内联实现） ----------------------
 try:
     from duckduckgo_search import DDGS
     DUCKDUCKGO_AVAILABLE = True
 except ImportError:
     DUCKDUCKGO_AVAILABLE = False
-    print("⚠ duckduckgo-search 未安装，联网搜索功能将不可用")
+    print("⚠ duckduckgo-search 未安装，备用搜索功能将不可用")
 
-class DuckDuckGoSearchClient:
-    """DuckDuckGo 搜索客户端"""
+class ZhipuSearchClient:
+    """智谱联网搜索MCP客户端"""
     
-    def __init__(self, timeout: int = 15):
-        self.timeout = timeout
-        self.max_results = config.SEARCH_CONFIG.get("max_results", 3)
-        self.cooldown = config.SEARCH_CONFIG.get("cooldown", 0.5)
+    def __init__(self, api_key: str, base_url: str = "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"):
+        self.api_key = api_key
+        self.base_url = base_url
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        self.timeout = 25
     
-    def search(self, query: str, max_results: int = None) -> dict:
-        """执行DuckDuckGo搜索"""
-        if not DUCKDUCKGO_AVAILABLE:
-            return {"results": [], "query": query, "success": False, "error": "DuckDuckGo不可用"}
-        
+    def web_search(self, query: str, max_results: int = 3) -> dict:
+        """执行联网搜索"""
         try:
-            max_results = max_results or self.max_results
-            print(f"🔍 DuckDuckGo搜索: {query}")
+            request_body = {
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {
+                    "name": "webSearchPrime",
+                    "arguments": {
+                        "query": query,
+                        "limit": max_results
+                    }
+                },
+                "id": int(time.time() * 1000)
+            }
             
+            print(f"🔍 MCP搜索: {query}")
+            
+            response = requests.post(
+                self.base_url,
+                headers=self.headers,
+                json=request_body,
+                timeout=self.timeout
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                if "result" in result:
+                    return self._parse_search_results(result["result"], query)
+                elif "error" in result:
+                    print(f"❌ MCP错误: {result['error']}")
+            else:
+                print(f"❌ HTTP错误: {response.status_code}")
+                
+        except requests.exceptions.Timeout:
+            print("⏰ MCP搜索超时")
+        except Exception as e:
+            print(f"❌ MCP异常: {str(e)}")
+        
+        return {"results": [], "query": query, "success": False}
+    
+    def _parse_search_results(self, result_data: dict, query: str) -> dict:
+        """解析搜索结果"""
+        try:
             results = []
-            with DDGS() as ddgs:
-                for r in ddgs.text(query, max_results=max_results):
+            
+            if isinstance(result_data, dict):
+                if "content" in result_data:
                     results.append({
-                        "title": r.get("title", ""),
-                        "content": r.get("body", ""),
-                        "url": r.get("href", ""),
-                        "source": "DuckDuckGo"
+                        "content": result_data["content"],
+                        "title": result_data.get("title", query),
+                        "source": "MCP搜索"
                     })
+                elif "results" in result_data and isinstance(result_data["results"], list):
+                    for item in result_data["results"]:
+                        if isinstance(item, dict):
+                            results.append({
+                                "content": item.get("content") or item.get("snippet") or "",
+                                "title": item.get("title") or "",
+                                "source": item.get("source", "MCP搜索")
+                            })
+            elif isinstance(result_data, list):
+                for item in result_data:
+                    if isinstance(item, dict):
+                        results.append({
+                            "content": item.get("content") or item.get("snippet") or "",
+                            "title": item.get("title") or "",
+                            "source": item.get("source", "MCP搜索")
+                        })
+            
+            filtered_results = [r for r in results if r.get("content", "").strip()]
             
             return {
-                "results": results,
+                "results": filtered_results[:3],
                 "query": query,
-                "success": len(results) > 0,
-                "count": len(results)
+                "success": len(filtered_results) > 0
             }
             
         except Exception as e:
-            print(f"❌ DuckDuckGo搜索失败: {str(e)}")
-            return {"results": [], "query": query, "success": False, "error": str(e)}
+            print(f"解析失败: {str(e)}")
+            return {"results": [], "query": query, "success": False}
     
-    def search_for_rumor_verification(self, content: str, keywords: list) -> dict:
+    def search_for_rumor_verification(self, content: str, keywords: list) -> str:
         """为谣言验证设计的搜索"""
         search_queries = self._generate_rumor_queries(content, keywords)
         all_results = []
         
-        for query in search_queries[:config.SEARCH_CONFIG.get("max_queries", 2)]:
-            search_result = self.search(query, max_results=2)
+        for query in search_queries[:2]:  # 最多2个查询
+            search_result = self.web_search(query, max_results=2)
             
             if search_result.get("success") and search_result["results"]:
-                for result in search_result["results"]:
-                    formatted_result = self._format_search_result(result)
-                    if formatted_result:
-                        all_results.append(formatted_result)
+                for result in search_result["results"][:2]:
+                    summary = self._extract_verification_info(result)
+                    if summary:
+                        all_results.append(summary)
             
-            time.sleep(self.cooldown)  # 避免请求过快
+            time.sleep(0.5)  # 避免请求过快
         
-        return {
-            "query_count": len(search_queries),
-            "total_results": len(all_results),
-            "results": all_results[:6],  # 最多返回6个结果
-            "success": len(all_results) > 0
-        }
+        if all_results:
+            return "📡 网络验证信息：\n" + "\n".join(all_results[:3])
+        return ""
     
     def _generate_rumor_queries(self, content: str, keywords: list) -> list:
         """生成谣言验证查询"""
         queries = []
         
-        # 基于关键字的查询
         if keywords:
             main_keywords = " ".join(keywords[:2])
             queries.extend([
                 f"{main_keywords} 谣言 辟谣",
                 f"{main_keywords} 事实核查",
-                f"{main_keywords} 是真的吗",
                 f"{main_keywords} 真相"
             ])
         
-        # 基于内容的查询
-        content_lower = content.lower()
-        
-        # 提取短句作为查询
         if len(content) < 100:
             sentences = re.split(r'[。！？]', content)
             for sentence in sentences:
-                sentence = sentence.strip()
                 if 10 < len(sentence) < 50:
                     queries.append(f"{sentence} 是真的吗")
         
-        # 特定主题的查询
-        if any(word in content_lower for word in ["疫情", "疫苗", "新冠", "病毒"]):
-            queries.extend([
-                "疫情谣言 官方辟谣",
-                "新冠疫苗 真相"
-            ])
-        if any(word in content_lower for word in ["食品", "吃", "喝", "中毒", "致癌"]):
-            queries.append("食品安全谣言 辟谣")
-        if any(word in content_lower for word in ["健康", "养生", "治病", "偏方"]):
-            queries.append("健康谣言 真相")
+        content_lower = content.lower()
+        if any(word in content_lower for word in ["疫情", "疫苗", "新冠"]):
+            queries.append("疫情谣言 官方辟谣")
+        if any(word in content_lower for word in ["食品", "吃", "喝"]):
+            queries.append("食品安全谣言")
         
-        # 去重并限制数量
-        return list(dict.fromkeys(queries))[:4]
+        return list(dict.fromkeys(queries))[:3]  # 去重并限制
     
-    def _format_search_result(self, result: dict) -> dict:
-        """格式化搜索结果"""
+    def _extract_verification_info(self, result: dict) -> str:
+        """提取验证信息"""
         try:
-            title = result.get("title", "").strip()
             content = result.get("content", "").strip()
-            url = result.get("url", "")
-            source = result.get("source", "DuckDuckGo")
+            title = result.get("title", "").strip()
             
             if not content:
-                return None
+                return ""
             
-            # 提取关键信息
-            summary = content[:100] + "..." if len(content) > 100 else content
+            content_short = content[:80] + "..." if len(content) > 80 else content
             
-            # 检测结果类型
-            result_type = "普通信息"
-            if any(word in content for word in ["辟谣", "谣言", "不实", "虚假"]):
-                result_type = "辟谣信息"
-            elif any(word in content for word in ["证实", "真相", "事实", "正确"]):
-                result_type = "证实信息"
-            elif any(word in content for word in ["可能", "或许", "不确定", "疑似"]):
-                result_type = "不确定信息"
+            verification_keywords = ["辟谣", "谣言", "证实", "事实", "真相"]
+            for keyword in verification_keywords:
+                if keyword in content:
+                    sentences = re.split(r'[。！？]', content)
+                    for sentence in sentences:
+                        if keyword in sentence and len(sentence) > 10:
+                            content_short = sentence.strip()[:70]
+                            break
+                    break
             
-            return {
-                "title": title,
-                "summary": summary,
-                "full_content": content,
-                "url": url,
-                "source": source,
-                "type": result_type,
-                "relevance_score": self._calculate_relevance(content)
-            }
-            
-        except Exception as e:
-            print(f"格式化搜索结果失败: {str(e)}")
-            return None
+            if title:
+                return f"• {title}: {content_short}"
+            else:
+                return f"• {content_short}"
+                
+        except:
+            return ""
+
+class FallbackSearch:
+    """备用搜索引擎"""
     
-    def _calculate_relevance(self, content: str) -> float:
-        """计算搜索结果相关性分数"""
-        relevance_keywords = [
-            "辟谣", "谣言", "证实", "真相", "事实", "核查",
-            "专家", "研究", "实验", "数据", "科学", "官方"
-        ]
+    @staticmethod
+    def duckduckgo_search(query: str, max_results: int = 2) -> list:
+        if not DUCKDUCKGO_AVAILABLE:
+            return []
         
-        score = 0.5  # 基础分
+        try:
+            with DDGS() as ddgs:
+                results = []
+                for r in ddgs.text(query, max_results=max_results):
+                    results.append({
+                        "title": r.get("title", ""),
+                        "content": r.get("body", ""),
+                        "source": "DuckDuckGo"
+                    })
+                return results
+        except:
+            return []
+    
+    @staticmethod
+    def search_for_rumor(query: str) -> str:
+        results = FallbackSearch.duckduckgo_search(query, max_results=2)
         
-        content_lower = content.lower()
-        for keyword in relevance_keywords:
-            if keyword in content_lower:
-                score += 0.1
+        if not results:
+            return ""
         
-        # 限制在0-1之间
-        return min(max(score, 0), 1)
+        summaries = []
+        for i, result in enumerate(results, 1):
+            title = result.get('title', '')[:40]
+            content = result.get('content', '')[:60]
+            if content:
+                summaries.append(f"{i}. {title}: {content}")
+        
+        if summaries:
+            return "🔍 备用搜索：\n" + "\n".join(summaries)
+        return ""
 
 # ---------------------- 基础配置 ----------------------
 app = FastAPI(title="谣言甄别系统API")
@@ -210,10 +285,6 @@ llm_client = ZhipuAI(
     api_key=config.LLM_CONFIG["api_key"],
     base_url=config.LLM_CONFIG.get("base_url", "https://open.bigmodel.cn/api/coding/paas/v4")
 )
-
-# ---------------------- 初始化搜索客户端 ----------------------
-search_client = DuckDuckGoSearchClient()
-
 # ---------------------- 使用jieba提取关键字的函数 ----------------------
 def extract_keywords_with_jieba(content: str, top_k: int = 8) -> list:
     """
@@ -335,56 +406,6 @@ def extract_keywords_with_jieba(content: str, top_k: int = 8) -> list:
     return unique_keywords[:top_k]
 
 # ---------------------- 大语言模型提示词模板 ----------------------
-# 增强的提示词模板（带DuckDuckGo搜索结果分析）
-ENHANCED_PROMPT_TEMPLATE = """
-你是一位专业的谣言甄别专家。请基于以下信息进行分析：
-
-=== 待检测信息 ===
-文本内容：{content}
-文本类型：{type}
-关键词：{keywords}
-
-=== 网络搜索结果 ===
-{search_summary}
-
-=== 分析要求 ===
-1. 首先分析文本中的核心声明
-2. 参考搜索结果中的信息进行事实核查
-3. 评估声明的逻辑一致性和合理性
-4. 综合搜索结果和逻辑分析给出判断
-
-=== 搜索结果分析指南 ===
-- 如果搜索结果包含明确的辟谣信息，考虑声明为谣言的可能性较高
-- 如果搜索结果证实了声明，考虑声明为真实的的可能性较高
-- 如果搜索结果没有相关信息，基于逻辑和常识判断
-- 注意搜索结果的来源和可信度
-
-=== 输出格式 ===
-严格按以下JSON格式输出：
-{{
-  "reasoning_steps": [
-    "第一步：分析文本核心声明",
-    "第二步：核查搜索结果中的事实依据", 
-    "第三步：评估逻辑和合理性",
-    "第四步：综合给出判断结论"
-  ],
-  "is_ai_generated": false,
-  "rumor_prob": 0.8500,
-  "confidence": "高/中/低",
-  "verification_based_on_search": true/false,
-  "search_result_summary": "对搜索结果的简要总结",
-  "key_findings_from_search": ["发现1", "发现2"]
-}}
-
-注意：
-1. rumor_prob: 谣言概率，0-1之间，保留4位小数（0=肯定是谣言，1=肯定不是谣言）
-2. confidence: 基于信息完整度的置信度
-3. verification_based_on_search: 是否基于搜索结果进行了验证
-4. 请确保推理步骤是4步
-5. 只输出JSON，不要有任何其他文字
-"""
-
-# 原始提示词模板（无搜索结果）
 PROMPT_TEMPLATE = """
 你是一位专业的谣言甄别专家。请严格按照以下JSON格式输出分析结果，不要添加任何额外的解释或说明：
 
@@ -414,6 +435,44 @@ PROMPT_TEMPLATE = """
 === 输出格式要求 ===
 只返回JSON格式的输出，不要有任何其他文字说明、注释或格式标记。
 JSON必须包含且仅包含以下字段：reasoning_steps, is_ai_generated, rumor_prob
+"""
+
+# 增强的提示词模板（带联网搜索）
+ENHANCED_PROMPT_TEMPLATE = """
+你是一位专业的谣言甄别专家。请基于以下信息进行分析：
+
+=== 待检测信息 ===
+文本内容：{content}
+文本类型：{type}
+关键词：{keywords}
+
+{web_context}
+
+=== 分析要求 ===
+1. 首先评估文本中的声明是否可验证
+2. 参考网络搜索结果（如果提供）进行事实核查
+3. 分析逻辑一致性和合理性
+4. 给出综合判断
+
+=== 输出格式 ===
+严格按以下JSON格式输出：
+{{
+  "reasoning_steps": [
+    "第一步：分析文本内容",
+    "第二步：核查事实依据", 
+    "第三步：评估可信度",
+    "第四步：综合判断结论"
+  ],
+  "is_ai_generated": false,
+  "rumor_prob": 0.8500,
+  "confidence": "高/中/低",
+  "verification_suggestions": ["建议1", "建议2"]
+}}
+
+注意：
+1. rumor_prob: 谣言概率，0-1之间，保留4位小数
+2. confidence: 基于信息完整度的置信度
+3. verification_suggestions: 进一步验证建议
 """
 
 # ---------------------- 工具函数 ----------------------
@@ -503,31 +562,30 @@ def fake_llm_detect(content: str, type: str, keywords: list):
         "rumor_prob": rumor_prob,
         "is_ai_generated": random.choice([True, False]),
         "reasoning_steps": reasoning_steps,
-        "from_cache": False,
-        "search_used": False
+        "from_cache": False
     }
 
 # 7. 判断是否需要联网搜索
 def should_enable_web_search(content: str, keywords: list) -> bool:
     """判断是否需要进行联网搜索"""
-    # 检查搜索配置是否启用
-    if not config.SEARCH_CONFIG.get("enable", True):
-        return False
-    
-    # 检查DuckDuckGo是否可用
-    if not DUCKDUCKGO_AVAILABLE:
+    # 检查MCP配置是否启用
+    if not hasattr(config, 'MCP_CONFIG') or not config.MCP_CONFIG.get("enable", True):
         return False
     
     # 如果内容太短
     if len(content) < 15:
         return False
     
+    # 检查API密钥
+    api_key = config.MCP_CONFIG.get("api_key", "")
+    if not api_key or api_key == "your_zhipu_api_key":
+        return False
+    
     # 检查是否包含可验证的声明
     verification_triggers = [
         "研究表明", "数据显示", "专家称", "最新发现", "实验证明",
         "据报道", "官方宣布", "科学研究", "事实证明", "调查显示",
-        "据统计", "根据研究", "科学证明", "专家建议", "医生提醒",
-        "实验表明", "数据显示", "科学研究", "临床实验"
+        "据统计", "根据研究", "科学证明", "专家建议", "医生提醒"
     ]
     
     content_lower = content.lower()
@@ -540,7 +598,7 @@ def should_enable_web_search(content: str, keywords: list) -> bool:
         return True
     
     # 基于关键词判断
-    search_keywords = {"研究", "数据", "统计", "实验", "最新", "科学", "证明", "专家", "医生", "教授", "实验", "研究", "数据"}
+    search_keywords = {"研究", "数据", "统计", "实验", "最新", "科学", "证明", "专家", "医生", "教授"}
     for keyword in keywords:
         if keyword in search_keywords:
             return True
@@ -552,81 +610,56 @@ def should_enable_web_search(content: str, keywords: list) -> bool:
         return True
     if any(word in content_lower for word in ["健康", "养生", "治病", "疗效", "偏方", "秘方"]):
         return True
-    if any(word in content_lower for word in ["科技", "发明", "新技术", "突破"]):
-        return True
     
     return False
 
-# 8. 执行DuckDuckGo搜索并格式化结果
-def perform_web_search(content: str, keywords: list) -> dict:
-    """执行DuckDuckGo搜索并返回格式化结果"""
+# 8. 执行联网搜索
+def perform_web_search(content: str, keywords: list) -> str:
+    """执行联网搜索并返回格式化结果"""
     try:
-        print("🔍 开始DuckDuckGo搜索验证...")
+        api_key = config.MCP_CONFIG.get("api_key", "")
+        if not api_key:
+            print("⚠ MCP API密钥未配置")
+            return ""
+        
+        print("🔍 开始联网搜索验证...")
+        search_client = ZhipuSearchClient(api_key)
         
         # 执行搜索
-        search_results = search_client.search_for_rumor_verification(content, keywords)
+        search_summary = search_client.search_for_rumor_verification(content, keywords)
         
-        if search_results.get("success") and search_results["results"]:
-            print(f"✅ DuckDuckGo搜索完成，找到 {len(search_results['results'])} 个相关结果")
-            
-            # 格式化搜索结果摘要
-            summary_parts = []
-            summary_parts.append(f"📡 网络验证信息（来自DuckDuckGo搜索）：")
-            summary_parts.append(f"搜索查询数：{search_results['query_count']}")
-            summary_parts.append(f"找到结果数：{search_results['total_results']}")
-            summary_parts.append("")
-            
-            for i, result in enumerate(search_results["results"][:4], 1):
-                result_type_emoji = {
-                    "辟谣信息": "🚫",
-                    "证实信息": "✅", 
-                    "不确定信息": "❓",
-                    "普通信息": "📰"
-                }.get(result["type"], "📰")
-                
-                summary_parts.append(f"{i}. {result_type_emoji} {result['title']}")
-                summary_parts.append(f"   摘要：{result['summary']}")
-                summary_parts.append(f"   类型：{result['type']} | 来源：{result['source']}")
-                summary_parts.append("")
-            
-            return {
-                "success": True,
-                "summary": "\n".join(summary_parts),
-                "raw_results": search_results["results"],
-                "formatted_results": search_results["results"][:4]
-            }
-        else:
-            print("ℹ️ 未获取到有效的网络验证信息")
-            return {
-                "success": False,
-                "summary": "⚠️ 网络搜索未找到相关验证信息",
-                "raw_results": [],
-                "formatted_results": []
-            }
+        if search_summary:
+            print("✅ 联网搜索完成")
+            return search_summary
+        elif config.MCP_CONFIG.get("enable_fallback", True) and DUCKDUCKGO_AVAILABLE:
+            # 回退到备用搜索
+            print("⚠ MCP搜索无结果，尝试备用搜索...")
+            if keywords:
+                query = f"{' '.join(keywords[:2])} 辟谣 事实核查"
+                return FallbackSearch.search_for_rumor(query)
             
     except Exception as e:
-        print(f"❌ DuckDuckGo搜索失败: {str(e)}")
-        return {
-            "success": False,
-            "summary": f"❌ 网络搜索失败: {str(e)}",
-            "raw_results": [],
-            "formatted_results": []
-        }
+        print(f"❌ 联网搜索失败: {str(e)}")
+    
+    return ""
 
-# 9. 增强的检测函数（带DuckDuckGo搜索）- 修复版
+# 9. 增强的检测函数（带联网搜索）
 def enhanced_real_llm_detect(content: str, type: str, keywords: list):
-    """增强的检测函数，包含DuckDuckGo搜索"""
+    """增强的检测函数，包含联网搜索"""
     try:
         print(f"📝 调用GLM-4模型API，内容长度: {len(content)}")
         
         # 判断是否需要联网搜索
         should_search = should_enable_web_search(content, keywords)
-        web_context = {"success": False, "summary": "", "results": []}
+        web_context = ""
         
-        # 如果需要搜索，执行DuckDuckGo搜索
+        # 如果需要搜索，执行联网搜索
         if should_search:
             web_context = perform_web_search(content, keywords)
-            print(f"📡 网络验证: {'成功' if web_context['success'] else '失败或无结果'}")
+            if web_context:
+                print("📡 网络验证信息已获取")
+            else:
+                print("ℹ️ 未获取到有效的网络验证信息")
         
         # 构建提示词
         escaped_content = content.replace("{", "{{").replace("}", "}}")
@@ -634,13 +667,14 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
         escaped_keywords = str(keywords).replace("{", "{{").replace("}", "}}")
         
         # 选择提示词模板
-        if web_context.get("success") and web_context.get("summary"):
+        if web_context:
             # 使用增强模板
+            web_context_part = f"=== 网络验证信息 ===\n{web_context}\n"
             prompt_content = ENHANCED_PROMPT_TEMPLATE.format(
                 content=escaped_content,
                 type=escaped_type,
                 keywords=escaped_keywords,
-                search_summary=web_context["summary"]
+                web_context=web_context_part
             )
         else:
             # 使用原始模板
@@ -651,11 +685,10 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
             )
         
         # 调用GLM-4
-        print(f"📤 发送提示词给GLM-4（前100字符）: {prompt_content[:100]}...")
         response = llm_client.chat.completions.create(
             model=config.LLM_CONFIG["model_name"],
             messages=[
-                {"role": "system", "content": "你是专业的谣言甄别专家，请基于所有可用信息进行客观分析，并严格按照要求的JSON格式输出。"},
+                {"role": "system", "content": "你是专业的谣言甄别专家，请基于所有可用信息进行客观分析。"},
                 {"role": "user", "content": prompt_content}
             ],
             temperature=config.LLM_CONFIG["temperature"],
@@ -664,20 +697,12 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
         )
         
         if not response or not response.choices:
-            print("❌ API返回空响应")
-            # 回退到原始检测
-            return real_llm_detect(content, type, keywords)
+            raise Exception("API返回空响应")
         
         result_str = response.choices[0].message.content.strip()
         
         if not result_str or len(result_str) == 0:
-            print("❌ 模型返回空内容")
-            # 回退到原始检测
-            return real_llm_detect(content, type, keywords)
-        
-        # 在这里添加关键日志，打印原始响应
-        print(f"🤖 原始API响应（前500字符）: {result_str[:500]}...")
-        print(f"🤖 原始API响应完整长度: {len(result_str)} 字符")
+            raise Exception("模型返回空内容")
         
         # 清理响应文本
         if result_str.startswith("```json"):
@@ -689,44 +714,26 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
         result_str = re.sub(r'^JSON:\s*', '', result_str, flags=re.IGNORECASE)
         result_str = result_str.strip()
         
-        print(f"🔄 清理后的响应: {result_str[:200]}...")
-        
         # JSON解析
         result = None
         max_attempts = 3
         for attempt in range(max_attempts):
             try:
                 result = json.loads(result_str)
-                print(f"✅ JSON解析成功（第{attempt+1}次尝试）")
                 break
-            except json.JSONDecodeError as e:
-                print(f"⚠️ JSON解析失败（第{attempt+1}次尝试）: {str(e)}")
+            except json.JSONDecodeError:
                 if attempt < max_attempts - 1:
-                    # 尝试修复常见的JSON格式问题
                     if "'" in result_str:
                         result_str = result_str.replace("'", "\"")
                     result_str = re.sub(r'\s+', ' ', result_str)
-                    
-                    # 确保有完整的JSON结构
                     if not result_str.endswith("}"):
-                        # 尝试找到最后一个}
-                        last_brace = result_str.rfind("}")
-                        if last_brace != -1:
-                            result_str = result_str[:last_brace+1]
-                        else:
-                            result_str += "}"
-                    
+                        result_str += "}"
                     if not result_str.startswith("{"):
                         start_idx = result_str.find("{")
                         if start_idx != -1:
                             result_str = result_str[start_idx:]
                         else:
                             result_str = "{" + result_str
-                    
-                    print(f"🔄 修复后重新尝试: {result_str[:100]}...")
-                else:
-                    print("❌ 所有JSON解析尝试都失败")
-                    raise Exception(f"JSON解析失败: {str(e)}")
         
         if result is None:
             raise Exception("JSON解析失败")
@@ -735,7 +742,6 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
         required_fields = ["reasoning_steps", "is_ai_generated", "rumor_prob"]
         for field in required_fields:
             if field not in result:
-                print(f"⚠️ 缺失字段: {field}，使用默认值")
                 if field == "reasoning_steps":
                     result[field] = ["识别内容：信息不足", "检查事实：无相关依据", "评估合理性：无法判断", "得出结论：信息不足"]
                 elif field == "is_ai_generated":
@@ -748,10 +754,8 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
             if not isinstance(result["reasoning_steps"], list):
                 result["reasoning_steps"] = ["识别内容：信息不足", "检查事实：无相关依据", "评估合理性：无法判断", "得出结论：信息不足"]
             elif len(result["reasoning_steps"]) != 4:
-                print(f"⚠️ 推理步骤数量不正确: {len(result['reasoning_steps'])}，调整为4步")
-                if len(result["reasoning_steps"]) < 4:
-                    while len(result["reasoning_steps"]) < 4:
-                        result["reasoning_steps"].append("信息不足")
+                while len(result["reasoning_steps"]) < 4:
+                    result["reasoning_steps"].append("信息不足")
                 result["reasoning_steps"] = result["reasoning_steps"][:4]
         
         # 确保谣言概率格式正确
@@ -760,30 +764,14 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
                 rumor_prob = float(result["rumor_prob"])
                 rumor_prob = max(0.0, min(1.0, rumor_prob))
                 result["rumor_prob"] = round(rumor_prob, 4)
-                print(f"✅ 谣言概率处理成功: {result['rumor_prob']}")
-            except Exception as e:
-                print(f"⚠️ 谣言概率格式错误: {result['rumor_prob']}，使用默认值0.5")
+            except:
                 result["rumor_prob"] = 0.5000
         
         # 添加额外字段
         result["from_cache"] = False
-        result["web_context_used"] = web_context.get("success", False)
-        
-        if web_context.get("success"):
-            result["search_used"] = True
-            result["search_result_count"] = len(web_context.get("raw_results", []))
-            result["search_summary"] = web_context.get("summary", "")[:300] + "..." if len(web_context.get("summary", "")) > 300 else web_context.get("summary", "")
-            
-            # 确保增强模板的字段存在
-            if "verification_based_on_search" not in result:
-                result["verification_based_on_search"] = True
-            if "search_result_summary" not in result:
-                result["search_result_summary"] = "基于搜索结果进行了事实核查"
-            if "key_findings_from_search" not in result:
-                result["key_findings_from_search"] = ["搜索结果中包含相关信息"]
-        else:
-            result["search_used"] = False
-            result["search_result_count"] = 0
+        result["web_context_used"] = bool(web_context)
+        if web_context:
+            result["web_search_summary"] = web_context[:200] + "..." if len(web_context) > 200 else web_context
         
         # 确保有confidence字段
         if "confidence" not in result:
@@ -793,17 +781,14 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
         if "verification_suggestions" not in result:
             result["verification_suggestions"] = ["建议进一步核实信息来源"]
         
-        print(f"✅ 增强检测完成，谣言概率: {result['rumor_prob']}")
         return result
         
     except Exception as e:
         print(f"❌ 增强检测失败：{str(e)}")
-        print(f"❌ 错误类型：{type(e).__name__}")
-        print(f"❌ 详细错误：{traceback.format_exc()}")
         # 回退到原始检测
         return real_llm_detect(content, type, keywords)
 
-# 10. 原始检测函数 - 修复版
+# 10. 原始检测函数
 def real_llm_detect(content: str, type: str, keywords: list):
     """原始的大语言模型检测函数"""
     try:
@@ -819,13 +804,11 @@ def real_llm_detect(content: str, type: str, keywords: list):
             keywords=escaped_keywords
         )
         
-        print(f"📤 发送提示词给GLM-4（原始模式，前100字符）: {prompt_content[:100]}...")
-        
         try:
             response = llm_client.chat.completions.create(
                 model=config.LLM_CONFIG["model_name"],
                 messages=[
-                    {"role": "system", "content": "你是一位专业的谣言甄别专家，请严格按照要求输出JSON格式的结果，不要有任何其他文字。"},
+                    {"role": "system", "content": "你是一位专业的谣言甄别专家，请严格按照要求输出JSON格式的结果。"},
                     {"role": "user", "content": prompt_content}
                 ],
                 temperature=config.LLM_CONFIG["temperature"],
@@ -833,12 +816,11 @@ def real_llm_detect(content: str, type: str, keywords: list):
                 timeout=30
             )
         except Exception as api_error:
-            print(f"❌ 第一次API调用失败: {str(api_error)}")
             try:
                 response = llm_client.chat.completions.create(
                     model=config.LLM_CONFIG["model_name"],
                     messages=[
-                        {"role": "system", "content": "你是一位专业的谣言甄别专家，请严格按照要求输出JSON格式的结果，不要有任何其他文字。"},
+                        {"role": "system", "content": "你是一位专业的谣言甄别专家，请严格按照要求输出JSON格式的结果。"},
                         {"role": "user", "content": prompt_content}
                     ],
                     temperature=config.LLM_CONFIG["temperature"],
@@ -846,22 +828,15 @@ def real_llm_detect(content: str, type: str, keywords: list):
                     timeout=30
                 )
             except Exception as retry_error:
-                print(f"❌ 第二次API调用失败: {str(retry_error)}")
                 raise Exception(f"API调用失败: {str(retry_error)}")
         
         if not response or not response.choices:
-            print("❌ API返回空响应")
             raise Exception("API返回空响应")
         
         result_str = response.choices[0].message.content.strip()
         
         if not result_str or len(result_str) == 0:
-            print("❌ 模型返回空内容")
             raise Exception("模型返回空内容")
-        
-        # 在这里添加关键日志，打印原始响应
-        print(f"🤖 原始API响应（原始模式，前500字符）: {result_str[:500]}...")
-        print(f"🤖 原始API响应完整长度: {len(result_str)} 字符")
         
         # 清理响应文本
         if result_str.startswith("```json"):
@@ -873,42 +848,26 @@ def real_llm_detect(content: str, type: str, keywords: list):
         result_str = re.sub(r'^JSON:\s*', '', result_str, flags=re.IGNORECASE)
         result_str = result_str.strip()
         
-        print(f"🔄 清理后的响应（原始模式）: {result_str[:200]}...")
-        
         # JSON解析
         result = None
         max_attempts = 3
         for attempt in range(max_attempts):
             try:
                 result = json.loads(result_str)
-                print(f"✅ JSON解析成功（原始模式，第{attempt+1}次尝试）")
                 break
-            except json.JSONDecodeError as e:
-                print(f"⚠️ JSON解析失败（原始模式，第{attempt+1}次尝试）: {str(e)}")
+            except json.JSONDecodeError:
                 if attempt < max_attempts - 1:
                     if "'" in result_str:
                         result_str = result_str.replace("'", "\"")
                     result_str = re.sub(r'\s+', ' ', result_str)
-                    
-                    # 确保有完整的JSON结构
                     if not result_str.endswith("}"):
-                        last_brace = result_str.rfind("}")
-                        if last_brace != -1:
-                            result_str = result_str[:last_brace+1]
-                        else:
-                            result_str += "}"
-                    
+                        result_str += "}"
                     if not result_str.startswith("{"):
                         start_idx = result_str.find("{")
                         if start_idx != -1:
                             result_str = result_str[start_idx:]
                         else:
                             result_str = "{" + result_str
-                    
-                    print(f"🔄 修复后重新尝试（原始模式）: {result_str[:100]}...")
-                else:
-                    print("❌ 所有JSON解析尝试都失败（原始模式）")
-                    raise Exception(f"JSON解析失败: {str(e)}")
         
         if result is None:
             raise Exception("JSON解析失败")
@@ -917,7 +876,6 @@ def real_llm_detect(content: str, type: str, keywords: list):
         required_fields = ["reasoning_steps", "is_ai_generated", "rumor_prob"]
         for field in required_fields:
             if field not in result:
-                print(f"⚠️ 缺失字段（原始模式）: {field}，使用默认值")
                 if field == "reasoning_steps":
                     result[field] = ["识别内容：信息不足", "检查事实：无相关依据", "评估合理性：无法判断", "得出结论：信息不足"]
                 elif field == "is_ai_generated":
@@ -930,10 +888,8 @@ def real_llm_detect(content: str, type: str, keywords: list):
             if not isinstance(result["reasoning_steps"], list):
                 result["reasoning_steps"] = ["识别内容：信息不足", "检查事实：无相关依据", "评估合理性：无法判断", "得出结论：信息不足"]
             elif len(result["reasoning_steps"]) != 4:
-                print(f"⚠️ 推理步骤数量不正确（原始模式）: {len(result['reasoning_steps'])}，调整为4步")
-                if len(result["reasoning_steps"]) < 4:
-                    while len(result["reasoning_steps"]) < 4:
-                        result["reasoning_steps"].append("信息不足")
+                while len(result["reasoning_steps"]) < 4:
+                    result["reasoning_steps"].append("信息不足")
                 result["reasoning_steps"] = result["reasoning_steps"][:4]
         
         # 确保谣言概率格式正确
@@ -942,31 +898,21 @@ def real_llm_detect(content: str, type: str, keywords: list):
                 rumor_prob = float(result["rumor_prob"])
                 rumor_prob = max(0.0, min(1.0, rumor_prob))
                 result["rumor_prob"] = round(rumor_prob, 4)
-                print(f"✅ 谣言概率处理成功（原始模式）: {result['rumor_prob']}")
-            except Exception as e:
-                print(f"⚠️ 谣言概率格式错误（原始模式）: {result['rumor_prob']}，使用默认值0.5")
+            except:
                 result["rumor_prob"] = 0.5000
         
         result["from_cache"] = False
         result["web_context_used"] = False
-        result["search_used"] = False
-        result["search_result_count"] = 0
         
-        print(f"✅ 原始检测完成，谣言概率: {result['rumor_prob']}")
         return result
-        
     except Exception as e:
         print(f"❌ GLM-4模型调用/解析失败：{str(e)}")
-        print(f"❌ 错误类型：{type(e).__name__}")
-        print(f"❌ 详细错误：{traceback.format_exc()}")
         return {
             "reasoning_steps": ["识别内容：模型调用异常", "检查事实：检测失败", "评估合理性：无法判断", "得出结论：信息不足"],
             "is_ai_generated": False,
             "rumor_prob": 0.5000,
             "from_cache": False,
-            "web_context_used": False,
-            "search_used": False,
-            "search_result_count": 0
+            "web_context_used": False
         }
 
 # ---------------------- 数据模型 ----------------------
@@ -1052,7 +998,7 @@ def login(request: LoginRequest, req: Request, db: Session = Depends(get_db)):
         }
     }
 
-# ---------------------- 检测接口（带DuckDuckGo搜索） ----------------------
+# ---------------------- 检测接口（带联网搜索） ----------------------
 @app.post("/api/detect")
 def detect(
     request: DetectRequest,
@@ -1091,8 +1037,7 @@ def detect(
                 "record_id": existing_record["record_id"],
                 "from_cache": True,
                 "use_count": existing_record["use_count"],
-                "web_context_used": False,
-                "search_used": False
+                "web_context_used": False
             }
         }
     
@@ -1106,7 +1051,7 @@ def detect(
         print("🤖 使用模拟模式")
         llm_result = fake_llm_detect(request.content, request.type, keywords)
     else:
-        print("🚀 使用GLM-4真实API模式（带DuckDuckGo搜索）")
+        print("🚀 使用GLM-4真实API模式（带联网搜索）")
         llm_result = enhanced_real_llm_detect(request.content, request.type, keywords)
     
     # 7. 存储新的检测记录到数据库
@@ -1140,8 +1085,7 @@ def detect(
         "record_id": record.id,
         "from_cache": False,
         "use_count": 1,
-        "web_context_used": llm_result.get("web_context_used", False),
-        "search_used": llm_result.get("search_used", False)
+        "web_context_used": llm_result.get("web_context_used", False)
     }
     
     # 添加额外字段（如果存在）
@@ -1149,20 +1093,12 @@ def detect(
         response_data["confidence"] = llm_result["confidence"]
     if "verification_suggestions" in llm_result:
         response_data["verification_suggestions"] = llm_result["verification_suggestions"]
-    if "search_summary" in llm_result:
-        response_data["search_summary"] = llm_result["search_summary"]
-    if "search_result_count" in llm_result:
-        response_data["search_result_count"] = llm_result["search_result_count"]
-    if "verification_based_on_search" in llm_result:
-        response_data["verification_based_on_search"] = llm_result["verification_based_on_search"]
-    if "search_result_summary" in llm_result:
-        response_data["search_result_summary"] = llm_result["search_result_summary"]
-    if "key_findings_from_search" in llm_result:
-        response_data["key_findings_from_search"] = llm_result["key_findings_from_search"]
+    if "web_search_summary" in llm_result:
+        response_data["web_search_summary"] = llm_result["web_search_summary"]
     
     return {
         "code": 200,
-        "msg": "检测成功" + ("（含网络验证）" if llm_result.get("search_used") else "（实时分析）"),
+        "msg": "检测成功" + ("（含联网验证）" if llm_result.get("web_context_used") else "（实时分析）"),
         "data": response_data
     }
 
@@ -1276,25 +1212,39 @@ def get_duplicate_stats(
         }
     }
 
-# ---------------------- 新增：检查搜索状态接口 ----------------------
-@app.get("/api/search-status")
-def get_search_status():
-    """检查DuckDuckGo搜索功能状态"""
+# ---------------------- 新增：检查联网搜索状态接口 ----------------------
+@app.get("/api/web-search-status")
+def get_web_search_status(
+    authorization: str = Header(None),
+    db: Session = Depends(get_db)
+):
+    """检查联网搜索功能状态"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="请先登录")
+    token = authorization.split(" ")[1]
+    try:
+        user_id = verify_token(token)
+    except:
+        raise HTTPException(status_code=401, detail="Token无效/过期")
     
     status_info = {
-        "duckduckgo_enabled": config.SEARCH_CONFIG.get("enable", True),
+        "mcp_enabled": hasattr(config, 'MCP_CONFIG') and config.MCP_CONFIG.get("enable", True),
+        "api_key_configured": False,
         "duckduckgo_available": DUCKDUCKGO_AVAILABLE,
-        "max_results": config.SEARCH_CONFIG.get("max_results", 3),
-        "max_queries": config.SEARCH_CONFIG.get("max_queries", 2),
-        "timeout": config.SEARCH_CONFIG.get("timeout", 15)
+        "fallback_enabled": hasattr(config, 'MCP_CONFIG') and config.MCP_CONFIG.get("enable_fallback", True)
     }
+    
+    if status_info["mcp_enabled"]:
+        api_key = config.MCP_CONFIG.get("api_key", "")
+        status_info["api_key_configured"] = bool(api_key and api_key != "your_zhipu_api_key")
+        status_info["api_key_masked"] = api_key[:8] + "..." + api_key[-4:] if api_key and len(api_key) > 12 else "未配置"
     
     # 测试搜索功能
     test_result = "未测试"
-    if status_info["duckduckgo_enabled"] and status_info["duckduckgo_available"]:
+    if status_info["mcp_enabled"] and status_info["api_key_configured"]:
         try:
-            test_client = DuckDuckGoSearchClient()
-            test_search = test_client.search("测试", max_results=1)
+            search_client = ZhipuSearchClient(config.MCP_CONFIG["api_key"])
+            test_search = search_client.web_search("测试", max_results=1)
             test_result = "正常" if test_search.get("success") else f"失败: {test_search.get('error', '未知错误')}"
         except Exception as e:
             test_result = f"异常: {str(e)}"
@@ -1327,13 +1277,19 @@ if __name__ == "__main__":
         else:
             print("✅ 测试用户已存在")
             
-        # 检查搜索配置
-        print("\n=== DuckDuckGo搜索功能状态 ===")
-        print(f"✓ 启用状态: {config.SEARCH_CONFIG.get('enable', True)}")
-        print(f"✓ DuckDuckGo可用: {'是' if DUCKDUCKGO_AVAILABLE else '否'}")
-        print(f"✓ 最大结果数: {config.SEARCH_CONFIG.get('max_results', 3)}")
-        print(f"✓ 最大查询数: {config.SEARCH_CONFIG.get('max_queries', 2)}")
-        print(f"✓ 超时时间: {config.SEARCH_CONFIG.get('timeout', 15)}秒")
+        # 检查联网搜索配置
+        print("\n=== 联网搜索功能状态 ===")
+        if hasattr(config, 'MCP_CONFIG'):
+            print(f"✓ MCP配置已加载")
+            print(f"✓ 启用状态: {config.MCP_CONFIG.get('enable', True)}")
+            api_key = config.MCP_CONFIG.get('api_key', '')
+            if api_key and api_key != "your_zhipu_api_key":
+                print(f"✓ API密钥: {api_key[:8]}...{api_key[-4:] if len(api_key) > 12 else ''}")
+            else:
+                print(f"⚠ API密钥: 未配置或使用默认值")
+            print(f"✓ 备用搜索: {'可用' if DUCKDUCKGO_AVAILABLE else '不可用'}")
+        else:
+            print("⚠ MCP配置未找到，联网搜索功能将不可用")
         
         print("\n=== 数据库去重功能状态 ===")
         print("✓ content_hash字段已添加")
@@ -1349,12 +1305,12 @@ if __name__ == "__main__":
     
     print(f"\n=== 谣言甄别系统后端启动 ===")
     print(f"📱 模型配置: {config.LLM_CONFIG['model_name']}")
-    print(f"🔍 DuckDuckGo搜索: {'已启用' if config.SEARCH_CONFIG.get('enable', True) and DUCKDUCKGO_AVAILABLE else '未启用'}")
+    print(f"🔗 联网搜索: {'已启用' if hasattr(config, 'MCP_CONFIG') and config.MCP_CONFIG.get('enable', True) else '未启用'}")
     print(f"💾 去重功能: 已启用")
     print(f"🤖 LLM_FAKE模式: {config.LLM_FAKE}")
     print(f"🌐 服务地址: http://localhost:8000")
     print(f"📚 API文档: http://localhost:8000/docs")
-    print(f"🔍 搜索状态检查: http://localhost:8000/api/search-status")
+    print(f"🔍 联网状态检查: http://localhost:8000/api/web-search-status")
     
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

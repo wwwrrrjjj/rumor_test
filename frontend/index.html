@@ -190,6 +190,20 @@
             font-size: 12px;
             color: #495057;
         }
+        
+        /* 谣言概率颜色样式 */
+        .rumor-prob-high {
+            color: #dc3545 !important;
+            font-weight: bold;
+        }
+        .rumor-prob-medium {
+            color: #ffc107 !important;
+            font-weight: bold;
+        }
+        .rumor-prob-low {
+            color: #28a745 !important;
+            font-weight: bold;
+        }
 
         /* 输入区域 */
         .chat-input-area {
@@ -414,6 +428,26 @@
             margin-bottom: 15px;
             border-radius: 4px;
             font-size: 14px;
+        }
+        
+        /* 搜索摘要样式 */
+        .search-summary {
+            margin-top: 10px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            font-size: 12px;
+            border-left: 3px solid #17a2b8;
+        }
+        
+        /* 验证建议样式 */
+        .verification-suggestions {
+            margin-top: 8px;
+            padding: 6px 10px;
+            background: #fff3cd;
+            border-radius: 4px;
+            font-size: 12px;
+            border-left: 3px solid #ffc107;
         }
     </style>
 </head>
@@ -648,7 +682,14 @@
             }
         }
 
-        // 工具函数：添加消息到聊天区域
+        // 工具函数：获取谣言概率颜色类
+        function getRumorProbClass(prob) {
+            if (prob >= 0.7) return "rumor-prob-high";
+            if (prob >= 0.3) return "rumor-prob-medium";
+            return "rumor-prob-low";
+        }
+
+        // 工具函数：添加消息到聊天区域 - 修复版
         function addMessageToChat(content, isUser = false, resultData = null) {
             const messageDiv = document.createElement("div");
             messageDiv.className = `message ${isUser ? "user" : "system"}`;
@@ -661,21 +702,46 @@
             // 内容
             const contentDiv = document.createElement("div");
             contentDiv.className = "message-content";
-            contentDiv.textContent = content;
-
-            // 如果是系统消息且有检测结果，添加结果详情
+            
+            // 如果是系统消息且有检测结果
             if (!isUser && resultData) {
+                // 设置消息标题
+                let title = "大模型分析完成：";
+                if (resultData.from_cache) {
+                    title = "✅ 已从缓存获取检测结果：";
+                } else if (resultData.search_used) {
+                    title = "🤖 大模型分析完成（含网络验证）：";
+                } else {
+                    title = "🤖 大模型分析完成：";
+                }
+                
+                // 创建标题文本节点
+                const titleNode = document.createTextNode(title);
+                contentDiv.appendChild(titleNode);
+                
+                // 添加缓存标记
+                if (resultData.from_cache) {
+                    const cacheBadge = document.createElement("div");
+                    cacheBadge.className = "cache-badge";
+                    cacheBadge.textContent = "缓存";
+                    contentDiv.appendChild(cacheBadge);
+                }
+                
+                // 创建结果详情容器
                 const resultDetailDiv = document.createElement("div");
                 resultDetailDiv.className = "result-detail";
                 
+                // 提取数据
                 let aiGeneratedText = resultData.is_ai_generated ? "是" : "否";
+                
+                // 推理步骤
                 let reasoningStepsHtml = "";
                 if (resultData.reasoning_steps && Array.isArray(resultData.reasoning_steps)) {
                     resultData.reasoning_steps.forEach((step, index) => {
                         reasoningStepsHtml += `<div class="reasoning-step">${index + 1}. ${step}</div>`;
                     });
                 }
-
+                
                 // 关键字展示
                 let keywordsHtml = "";
                 if (resultData.keywords && Array.isArray(resultData.keywords)) {
@@ -685,41 +751,88 @@
                     });
                     keywordsHtml += '</div>';
                 }
-
-                // 添加缓存信息
+                
+                // 缓存信息
                 let cacheInfo = "";
                 if (resultData.from_cache !== undefined) {
-                    if (resultData.from_cache) {
-                        cacheInfo = `<p><strong>📊 来源：</strong>数据库缓存</p>`;
-                        cacheInfo += `<p><strong>🔄 使用次数：</strong>${resultData.use_count || 1} 次</p>`;
-                        
-                        // 添加缓存标记
-                        const cacheBadge = document.createElement("div");
-                        cacheBadge.className = "cache-badge";
-                        cacheBadge.textContent = "缓存";
-                        contentDiv.appendChild(cacheBadge);
-                        
-                        // 修改消息内容提示缓存
-                        contentDiv.textContent = "✅ 已从缓存获取检测结果：";
-                    } else {
-                        cacheInfo = `<p><strong>📊 来源：</strong>大模型实时分析</p>`;
-                        cacheInfo += `<p><strong>🔄 使用次数：</strong>首次检测</p>`;
-                        contentDiv.textContent = "🤖 大模型分析完成：";
+                    cacheInfo = `<p><strong>📊 来源：</strong>${resultData.from_cache ? '数据库缓存' : '大模型实时分析'}</p>`;
+                    cacheInfo += `<p><strong>🔄 使用次数：</strong>${resultData.use_count || 1} 次</p>`;
+                }
+                
+                // 搜索信息
+                let searchInfo = "";
+                if (resultData.search_used) {
+                    searchInfo = `<p><strong>🔍 网络验证：</strong>已使用DuckDuckGo搜索</p>`;
+                    if (resultData.search_result_count) {
+                        searchInfo += `<p><strong>📊 搜索结果：</strong>${resultData.search_result_count}条</p>`;
                     }
                 }
-
+                
+                // 置信度和验证建议
+                let confidenceInfo = "";
+                if (resultData.confidence) {
+                    confidenceInfo = `<p><strong>📊 置信度：</strong>${resultData.confidence}</p>`;
+                }
+                
+                let verificationInfo = "";
+                if (resultData.verification_suggestions && Array.isArray(resultData.verification_suggestions)) {
+                    verificationInfo = `<div class="verification-suggestions">`;
+                    verificationInfo += `<strong>💡 验证建议：</strong><br>`;
+                    resultData.verification_suggestions.forEach((suggestion, index) => {
+                        verificationInfo += `${index + 1}. ${suggestion}<br>`;
+                    });
+                    verificationInfo += `</div>`;
+                }
+                
+                // 谣言概率颜色类
+                const rumorProbClass = getRumorProbClass(resultData.rumor_prob || 0.5);
+                
+                // 构建结果详情HTML
                 resultDetailDiv.innerHTML = `
                     ${cacheInfo}
+                    ${searchInfo}
+                    ${confidenceInfo}
                     <p><strong>🔑 核心关键字：</strong></p>
                     ${keywordsHtml}
-                    <p><strong>📈 谣言概率：</strong>${resultData.rumor_prob || 0.5000}</p>
+                    <p><strong>📈 谣言概率：</strong><span class="${rumorProbClass}">${resultData.rumor_prob || 0.5000}</span></p>
                     <p><strong>🤖 是否AI生成：</strong>${aiGeneratedText}</p>
+                    ${verificationInfo}
                     <p><strong>🧠 推理过程：</strong></p>
                     ${reasoningStepsHtml}
                 `;
+                
+                // 如果有搜索摘要，添加进去
+                if (resultData.search_summary) {
+                    const searchDiv = document.createElement("div");
+                    searchDiv.className = "search-summary";
+                    searchDiv.innerHTML = `<strong>🌐 搜索摘要：</strong><br>${resultData.search_summary}`;
+                    resultDetailDiv.appendChild(searchDiv);
+                }
+                
+                // 如果有额外的搜索相关字段，也显示
+                if (resultData.search_result_summary) {
+                    const searchResultDiv = document.createElement("div");
+                    searchResultDiv.className = "search-summary";
+                    searchResultDiv.innerHTML = `<strong>🔍 搜索结果总结：</strong><br>${resultData.search_result_summary}`;
+                    resultDetailDiv.appendChild(searchResultDiv);
+                }
+                
+                if (resultData.key_findings_from_search && Array.isArray(resultData.key_findings_from_search)) {
+                    const findingsDiv = document.createElement("div");
+                    findingsDiv.className = "verification-suggestions";
+                    findingsDiv.innerHTML = `<strong>🔎 搜索关键发现：</strong><br>` + 
+                        resultData.key_findings_from_search.map((finding, index) => 
+                            `${index + 1}. ${finding}`
+                        ).join('<br>');
+                    resultDetailDiv.appendChild(findingsDiv);
+                }
+                
                 contentDiv.appendChild(resultDetailDiv);
+            } else {
+                // 如果是普通系统消息
+                contentDiv.textContent = content;
             }
-
+            
             // 组装消息元素
             messageDiv.appendChild(avatarDiv);
             messageDiv.appendChild(contentDiv);
@@ -861,7 +974,7 @@
             inputLengthHint.style.color = length > 500 ? "red" : "#999";
         });
 
-        // 发送检测消息逻辑
+        // 发送检测消息逻辑 - 修复版
         sendMessageBtn.addEventListener("click", async () => {
             if (isSending) return;
             
@@ -893,20 +1006,38 @@
                     { headers: { "Authorization": `Bearer ${token}` } }
                 );
 
+                console.log("检测响应:", response.data);
+
                 if (response.data.code === 200) {
                     const data = response.data.data;
+                    console.log("检测数据详情:", {
+                        hasReasoningSteps: !!data.reasoning_steps,
+                        reasoningStepsLength: data.reasoning_steps?.length,
+                        hasKeywords: !!data.keywords,
+                        keywordsLength: data.keywords?.length,
+                        rumorProb: data.rumor_prob,
+                        fromCache: data.from_cache,
+                        searchUsed: data.search_used
+                    });
+                    
                     // 添加系统回复消息（包含检测结果）
                     addMessageToChat("", false, data);
                     
                     // 显示来源提示
                     if (data.from_cache) {
                         showToast(`✅ 检测完成（来自缓存，已使用 ${data.use_count} 次）`);
+                    } else if (data.search_used) {
+                        showToast("✅ 检测完成（含网络验证）");
                     } else {
                         showToast("✅ 检测完成（实时分析）");
                     }
+                } else {
+                    addMessageToChat(`检测失败：${response.data.msg || "未知错误"}`, false);
+                    showToast(response.data.msg || "检测失败！", true);
                 }
             } catch (error) {
-                const errMsg = error.response?.data?.detail || "检测失败，请重试！";
+                console.error("检测请求错误:", error);
+                const errMsg = error.response?.data?.detail || error.response?.data?.msg || error.message || "检测失败，请重试！";
                 addMessageToChat(`检测出错：${errMsg}`, false);
                 showToast(errMsg, true);
             } finally {
@@ -948,12 +1079,15 @@
                                 });
                             }
                             
+                            // 谣言概率颜色
+                            const rumorProbClass = getRumorProbClass(item.rumor_prob || 0.5);
+                            
                             itemDiv.innerHTML = `
                                 <p><strong>检测时间：</strong>${item.last_used_time || item.create_time} ${cacheInfo}</p>
                                 <p><strong>文本：</strong>${item.content.length > 60 ? item.content.substring(0, 60) + "..." : item.content}</p>
                                 <p><strong>关键字：</strong>${keywordsHtml}</p>
                                 <p><strong>类型：</strong>${item.type}</p>
-                                <p><strong>谣言概率：</strong>${item.rumor_prob}</p>
+                                <p><strong>谣言概率：</strong><span class="${rumorProbClass}">${item.rumor_prob}</span></p>
                                 <p><strong>是否AI生成：</strong>${item.is_ai_generated ? "是" : "否"}</p>
                             `;
                             historyList.appendChild(itemDiv);
@@ -1061,7 +1195,7 @@
             }
         });
 
-        // 示例文本快速填充（可选功能）
+        // 示例文本快速填充
         function fillExampleText() {
             const examples = [
                 "吃芹菜能降血压，每天吃一斤效果最好",

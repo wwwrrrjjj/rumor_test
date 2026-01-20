@@ -56,4 +56,3 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base.metadata.create_all(bind=engine)
 
 print("数据库表创建/更新成功！")
-print("已为reasoning_records表添加去重功能（content_hash字段）")

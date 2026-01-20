@@ -1,14 +1,32 @@
+# 基础框架
 fastapi==0.104.1
 uvicorn==0.24.0
+
+# 数据库
 sqlalchemy==2.0.23
 pymysql==1.1.0
+
+# HTTP请求
 requests==2.31.0
+
+# AI相关
 langchain==0.1.9
 openai==1.13.3
+zhipuai>=2.1.0
+dashscope>=1.14.0
+
+# 数据处理
 pandas==2.1.4
 matplotlib==3.8.2
-zhipuai>=2.1.0
+
+# 工具库
 simplejson==3.19.1
 passlib==1.7.4
 python-jose[cryptography]==3.3.0
 jieba==0.42.1
+python-dotenv>=1.0.0
+
+# 其他
+html5lib>=1.1
+requests>=2.31.0
+duckduckgo-search>=5.4.1  # 备用搜索依赖
