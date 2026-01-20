@@ -421,8 +421,7 @@ def extract_keywords_with_jieba(content: str, top_k: int = 8) -> list:
     return unique_keywords[:top_k]
 
 # ---------------------- 大语言模型提示词模板 ----------------------
-# 增强的提示词模板（带DuckDuckGo搜索结果分析）
-# 修改 ENHANCED_PROMPT_TEMPLATE 中的概率部分
+# 增强的提示词模板
 ENHANCED_PROMPT_TEMPLATE = """
 你是一位专业的谣言甄别专家。请基于以下信息进行分析：
 
@@ -466,7 +465,7 @@ ENHANCED_PROMPT_TEMPLATE = """
     "第四步：综合给出判断结论"
   ],
   "is_ai_generated": false,
-  "rumor_prob": 0.7236,  # ⚠️ 注意：这是示例，请根据实际分析计算
+  "rumor_prob": 0.7236,  #  注意：这是示例，请根据实际分析计算
   "is_rumor": true,
   "conclusion": "经分析，该信息【是谣言】。",
   "confidence": "高/中/低",
@@ -646,8 +645,8 @@ def should_enable_web_search(content: str, keywords: list) -> bool:
     if not DUCKDUCKGO_AVAILABLE:
         return False
     
-    # 如果内容太短
-    if len(content) > 8:
+    
+    if len(content) > 10:
         return True
     
     # 检查是否包含可验证的声明
@@ -741,7 +740,7 @@ def perform_web_search(content: str, keywords: list) -> dict:
             "formatted_results": []
         }
 
-# 9. 增强的检测函数（带DuckDuckGo搜索）- 修复版
+# 9. 增强的检测函数（带DuckDuckGo搜索）
 def enhanced_real_llm_detect(content: str, type: str, keywords: list):
     """增强的检测函数，包含DuckDuckGo搜索"""
     try:
@@ -983,7 +982,7 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
         # 回退到原始检测
         return real_llm_detect(content, type, keywords)
 
-# 10. 原始检测函数 - 修复版
+# 10. 原始检测函数 
 def real_llm_detect(content: str, type: str, keywords: list):
     """原始的大语言模型检测函数"""
     try:
@@ -1446,7 +1445,7 @@ def get_history(
         }
     }
 
-# ---------------------- 新增：查看重复内容统计接口 ----------------------
+# ---------------------- 查看重复内容统计接口 ----------------------
 @app.get("/api/duplicate-stats")
 def get_duplicate_stats(
     authorization: str = Header(None),
