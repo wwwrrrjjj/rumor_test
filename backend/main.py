@@ -557,13 +557,15 @@ def calculate_content_hash(content: str) -> str:
     return hashlib.md5(content.encode('utf-8')).hexdigest()
 
 # 5. 数据库去重查询函数
-def find_existing_record(db: Session, content_hash: str) -> dict:
+
+def find_existing_record(db: Session, content_hash: str, user_id: int) -> dict:
     """
-    根据内容哈希值在数据库中查找现有记录
+    根据内容哈希值和用户ID在数据库中查找现有记录
     返回：如果找到返回记录数据，否则返回None
     """
     existing_record = db.query(ReasoningRecord).filter(
-        ReasoningRecord.content_hash == content_hash
+        ReasoningRecord.content_hash == content_hash,
+        ReasoningRecord.user_id == user_id  # 添加用户ID过滤
     ).first()
     
     if existing_record:
@@ -611,7 +613,6 @@ def find_existing_record(db: Session, content_hash: str) -> dict:
             "conclusion": conclusion
         }
     return None
-
 # 6. 模拟大语言模型检测
 def fake_llm_detect(content: str, type: str, keywords: list):
     rumor_prob = round(random.uniform(0, 1), 4)
@@ -1252,7 +1253,7 @@ def login(request: LoginRequest, req: Request, db: Session = Depends(get_db)):
         }
     }
 
-# ---------------------- 检测接口（带DuckDuckGo搜索） ----------------------
+# ---------------------- 检测接口 ----------------------
 @app.post("/api/detect")
 def detect(
     request: DetectRequest,
@@ -1272,14 +1273,14 @@ def detect(
     if len(request.content) < 1 or len(request.content) > 500:
         raise HTTPException(status_code=400, detail="文本长度需1-500字")
     
-    # 3. 计算内容哈希值（用于去重）
+    # 3. 计算内容哈希值
     content_hash = calculate_content_hash(request.content)
-    print(f"🔑 内容哈希值: {content_hash}")
+    print(f"🔑 内容哈希值: {content_hash}, 用户ID: {user_id}")
     
     # 4. 先查询数据库是否有相同内容的记录
-    existing_record = find_existing_record(db, content_hash)
+    existing_record = find_existing_record(db, content_hash, user_id)  # 传入user_id参数
     if existing_record:
-        print(f"✅ 找到缓存记录，使用次数: {existing_record['use_count']}")
+        print(f"✅ 找到用户{user_id}的缓存记录，使用次数: {existing_record['use_count']}")
         return {
             "code": 200,
             "msg": "检测成功（来自缓存）",
@@ -1301,8 +1302,7 @@ def detect(
     # 5. 如果没有缓存，则提取关键字
     keywords = extract_keywords_with_jieba(request.content)
     print(f"🔑 提取的关键字: {keywords}")
-    print("🔄 未找到缓存记录，调用大模型...")
-    
+    print(f"🔄 用户{user_id}未找到缓存记录，调用大模型...")
     # 6. 调用大语言模型
     if config.LLM_FAKE:
         print("🤖 使用模拟模式")
@@ -1392,7 +1392,10 @@ def get_history(
         size = 10
     
     offset = (page - 1) * size
-    records = db.query(ReasoningRecord).filter(ReasoningRecord.user_id == user_id).order_by(ReasoningRecord.last_used_time.desc()).offset(offset).limit(size).all()
+    # 只查询当前用户的记录
+    records = db.query(ReasoningRecord).filter(
+        ReasoningRecord.user_id == user_id
+    ).order_by(ReasoningRecord.last_used_time.desc()).offset(offset).limit(size).all()
     
     history_list = []
     for r in records:
@@ -1444,7 +1447,6 @@ def get_history(
             "list": history_list
         }
     }
-
 # ---------------------- 查看重复内容统计接口 ----------------------
 @app.get("/api/duplicate-stats")
 def get_duplicate_stats(
@@ -1460,7 +1462,7 @@ def get_duplicate_stats(
     except:
         raise HTTPException(status_code=401, detail="Token无效/过期")
     
-    # 统计使用次数最多的内容
+    # 统计使用次数最多的内容（只统计当前用户）
     most_used = db.query(ReasoningRecord).filter(
         ReasoningRecord.user_id == user_id
     ).order_by(ReasoningRecord.use_count.desc()).limit(5).all()
@@ -1474,8 +1476,11 @@ def get_duplicate_stats(
             "conclusion": record.conclusion if record.conclusion else ("【是谣言】" if record.rumor_prob >= 0.5 else "【不是谣言】")
         })
     
-    # 统计缓存命中率
-    total_records = db.query(ReasoningRecord).filter(ReasoningRecord.user_id == user_id).count()
+    # 统计缓存命中率（只统计当前用户）
+    total_records = db.query(ReasoningRecord).filter(
+        ReasoningRecord.user_id == user_id
+    ).count()
+    
     duplicate_records = db.query(ReasoningRecord).filter(
         ReasoningRecord.user_id == user_id,
         ReasoningRecord.use_count > 1
@@ -1495,7 +1500,6 @@ def get_duplicate_stats(
             "most_used_contents": most_used_list
         }
     }
-
 # ---------------------- 检查搜索状态接口 ----------------------
 @app.get("/api/search-status")
 def get_search_status():

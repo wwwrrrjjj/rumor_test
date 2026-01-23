@@ -9,7 +9,7 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: "Microsoft YaHei", sans-serif; background: #f5f5f5; }
         
-        /* 登录/注册区域样式（保留原有） */
+        /* 登录/注册区域样式 */
         .container { width: 90%; max-width: 1000px; margin: 50px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         .title { text-align: center; margin-bottom: 30px; color: #333; }
         .section { margin-bottom: 20px; }
@@ -452,7 +452,7 @@
     </style>
 </head>
 <body>
-    <!-- 登录/注册区域（保留原有） -->
+    <!-- 登录/注册区域 -->
     <div class="container" id="auth-container">
         <h1 class="title">谣言甄别系统</h1>
 
@@ -939,7 +939,7 @@
             // 清空token和用户信息
             token = "";
             userId = "";
-            // 清空聊天记录（保留欢迎语）
+            // 清空聊天记录
             chatMessages.innerHTML = `
                 <div class="message system">
                     <div class="message-avatar">🤖</div>
@@ -979,7 +979,7 @@
             inputLengthHint.style.color = length > 500 ? "red" : "#999";
         });
 
-        // 发送检测消息逻辑 - 修复版
+        // 发送检测消息逻辑
         sendMessageBtn.addEventListener("click", async () => {
             if (isSending) return;
             
@@ -1025,7 +1025,7 @@
                         searchUsed: data.search_used
                     });
                     
-                    // 添加系统回复消息（包含检测结果）
+                    // 添加系统回复消息
                     addMessageToChat("", false, data);
                     
                     // 显示来源提示
@@ -1227,7 +1227,7 @@ statsBtn.addEventListener("click", async () => {
             chatMessageInput.dispatchEvent(new Event('input'));
         }
 
-        // 添加示例按钮（可选）
+        // 添加示例按钮
         document.addEventListener('DOMContentLoaded', function() {
             // 可以在输入框下方添加示例按钮
             const inputArea = document.querySelector('.chat-input-area');
