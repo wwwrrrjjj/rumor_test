@@ -404,6 +404,45 @@
             border-left: 4px solid #28a745;
         }
 
+        /* 系统状态弹窗 */
+        .system-status-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .system-status-modal-content {
+            width: 90%;
+            max-width: 600px;
+            background: white;
+            border-radius: 12px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .system-status-modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .system-status-modal-header h3 {
+            font-size: 16px;
+            color: #333;
+        }
+        .system-status-modal-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
         /* 加载动画 */
         .loading {
             display: inline-block;
@@ -448,6 +487,68 @@
             border-radius: 4px;
             font-size: 12px;
             border-left: 3px solid #ffc107;
+        }
+        
+        /* 开关样式 */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        .switch input { 
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            border-radius: 24px;
+            transition: .4s;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            border-radius: 50%;
+            transition: .4s;
+        }
+        input:checked + .slider {
+            background-color: #007bff;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        
+        /* 搜索开关容器 */
+        .search-switch-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #17a2b8;
+        }
+        .search-switch-container label {
+            margin: 0;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        #search-status {
+            font-size: 12px;
+            color: #666;
         }
     </style>
 </head>
@@ -497,6 +598,7 @@
         <div class="chat-header">
             <h2>谣言甄别助手</h2>
             <div class="chat-header-btns">
+                <button class="chat-header-btn" id="system-status-btn">⚙️ 系统状态</button>
                 <button class="chat-header-btn cache-btn" id="stats-btn">📊 缓存统计</button>
                 <button class="chat-header-btn" id="history-btn">📜 历史记录</button>
                 <button class="chat-header-btn" id="logout-btn">🚪 退出登录</button>
@@ -510,7 +612,7 @@
                 <div class="message-avatar">🤖</div>
                 <div class="message-content">
                     <div class="info-banner">
-                        <strong>📢 系统提示：</strong> 系统已启用缓存功能，相同内容将优先从数据库读取，节省API调用并提高响应速度。
+                        <strong>📢 系统提示：</strong> 系统已启用缓存功能，相同内容将优先从数据库读取，节省API调用并提高响应速度。您可以在下方控制是否启用网络搜索功能。
                     </div>
                     你好！我是谣言甄别助手，请输入需要检测的文本，我会为你分析是否为谣言以及相关推理过程。
                 </div>
@@ -529,10 +631,26 @@
                         <option value="其他">其他</option>
                     </select>
                 </div>
+                
+                <!-- 新增：搜索开关 -->
+                <div class="search-switch-container">
+                    <label for="search-enabled">🌐 启用网络搜索：</label>
+                    <label class="switch">
+                        <input type="checkbox" id="search-enabled" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <span id="search-status">已启用（推荐）</span>
+                </div>
+                
                 <div class="text-input-container">
                     <textarea id="chat-message-input" placeholder="请输入需要检测的文本（1-500字）..."></textarea>
                     <div class="input-hint" id="input-length-hint">0/500</div>
                 </div>
+                
+                <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
+                    💡 提示：启用网络搜索会使用DuckDuckGo查询相关信息，提高检测准确性，但响应时间稍长。
+                </div>
+                
                 <div class="send-btn-container">
                     <button id="send-message-btn">
                         <span id="send-btn-text">发送检测</span>
@@ -565,6 +683,19 @@
             </div>
             <div class="stats-modal-body" id="stats-content">
                 <!-- 统计内容会动态生成 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 系统状态弹窗 -->
+    <div class="system-status-modal" id="system-status-modal">
+        <div class="system-status-modal-content">
+            <div class="system-status-modal-header">
+                <h3>系统状态信息</h3>
+                <button class="close-modal-btn" id="close-system-status-btn">×</button>
+            </div>
+            <div class="system-status-modal-body" id="system-status-content">
+                <!-- 系统状态内容会动态生成 -->
             </div>
         </div>
     </div>
@@ -604,6 +735,11 @@
         const historyBtn = document.getElementById("history-btn");
         const statsBtn = document.getElementById("stats-btn");
         const logoutBtn = document.getElementById("logout-btn");
+        const systemStatusBtn = document.getElementById("system-status-btn");
+
+        // 搜索开关相关
+        const searchEnabledCheckbox = document.getElementById("search-enabled");
+        const searchStatusSpan = document.getElementById("search-status");
 
         // 弹窗相关
         const historyModal = document.getElementById("history-modal");
@@ -612,6 +748,9 @@
         const statsModal = document.getElementById("stats-modal");
         const statsContent = document.getElementById("stats-content");
         const closeStatsBtn = document.getElementById("close-stats-btn");
+        const systemStatusModal = document.getElementById("system-status-modal");
+        const systemStatusContent = document.getElementById("system-status-content");
+        const closeSystemStatusBtn = document.getElementById("close-system-status-btn");
 
         // 页面加载完成后强制初始化显示状态
         window.onload = function() {
@@ -628,6 +767,7 @@
             // 隐藏弹窗
             historyModal.style.display = "none";
             statsModal.style.display = "none";
+            systemStatusModal.style.display = "none";
             // 清空登录/注册输入框
             usernameInput.value = "";
             passwordInput.value = "";
@@ -673,12 +813,14 @@
                 sendMessageBtn.disabled = true;
                 chatMessageInput.disabled = true;
                 rumorTypeSelect.disabled = true;
+                searchEnabledCheckbox.disabled = true;
             } else {
                 sendBtnText.textContent = "发送检测";
                 loadingIndicator.classList.add("hidden");
                 sendMessageBtn.disabled = false;
                 chatMessageInput.disabled = false;
                 rumorTypeSelect.disabled = false;
+                searchEnabledCheckbox.disabled = false;
             }
         }
 
@@ -847,6 +989,20 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
+        // 搜索开关事件监听
+        searchEnabledCheckbox.addEventListener("change", function() {
+            const isEnabled = this.checked;
+            searchStatusSpan.textContent = isEnabled ? "已启用（推荐）" : "已禁用";
+            searchStatusSpan.style.color = isEnabled ? "#28a745" : "#dc3545";
+            
+            // 显示提示
+            if (isEnabled) {
+                showToast("✅ 网络搜索已启用，将使用DuckDuckGo查询相关信息");
+            } else {
+                showToast("🔇 网络搜索已禁用，仅使用模型本地知识分析");
+            }
+        });
+
         // 注册逻辑
         registerBtn.addEventListener("click", async () => {
             const username = regUsernameInput.value.trim();
@@ -945,7 +1101,7 @@
                     <div class="message-avatar">🤖</div>
                     <div class="message-content">
                         <div class="info-banner">
-                            <strong>📢 系统提示：</strong> 系统已启用缓存功能，相同内容将优先从数据库读取，节省API调用并提高响应速度。
+                            <strong>📢 系统提示：</strong> 系统已启用缓存功能，相同内容将优先从数据库读取，节省API调用并提高响应速度。您可以在下方控制是否启用网络搜索功能。
                         </div>
                         你好！我是谣言甄别助手，请输入需要检测的文本，我会为你分析是否为谣言以及相关推理过程。
                     </div>
@@ -968,6 +1124,11 @@
             regPasswordInput.value = "";
             regConfirmPasswordInput.value = "";
             
+            // 重置搜索开关
+            searchEnabledCheckbox.checked = true;
+            searchStatusSpan.textContent = "已启用（推荐）";
+            searchStatusSpan.style.color = "#28a745";
+            
             // 显示提示
             showToast("已退出登录");
         });
@@ -985,6 +1146,7 @@
             
             const content = chatMessageInput.value.trim();
             const type = rumorTypeSelect.value;
+            const searchEnabled = searchEnabledCheckbox.checked;  // 获取搜索开关状态
 
             // 校验文本长度
             if (content.length < 1 || content.length > 500) {
@@ -992,8 +1154,12 @@
                 return;
             }
 
-            // 添加用户消息到聊天区域
-            addMessageToChat(content, true);
+            // 添加用户消息到聊天区域，显示搜索状态
+            let userMessage = content;
+            if (!searchEnabled) {
+                userMessage += " 🔇（搜索已禁用）";
+            }
+            addMessageToChat(userMessage, true);
             
             // 清空输入框
             chatMessageInput.value = "";
@@ -1007,7 +1173,11 @@
             try {
                 const response = await axios.post(
                     "http://localhost:8000/api/detect",
-                    { content: content, type: type },
+                    { 
+                        content: content, 
+                        type: type,
+                        search_enabled: searchEnabled  // 传递搜索开关状态
+                    },
                     { headers: { "Authorization": `Bearer ${token}` } }
                 );
 
@@ -1022,7 +1192,8 @@
                         keywordsLength: data.keywords?.length,
                         rumorProb: data.rumor_prob,
                         fromCache: data.from_cache,
-                        searchUsed: data.search_used
+                        searchUsed: data.search_used,
+                        searchEnabled: searchEnabled
                     });
                     
                     // 添加系统回复消息
@@ -1033,6 +1204,8 @@
                         showToast(`✅ 检测完成（来自缓存，已使用 ${data.use_count} 次）`);
                     } else if (data.search_used) {
                         showToast("✅ 检测完成（含网络验证）");
+                    } else if (!searchEnabled) {
+                        showToast("✅ 检测完成（搜索已禁用，仅本地分析）");
                     } else {
                         showToast("✅ 检测完成（实时分析）");
                     }
@@ -1052,135 +1225,180 @@
             }
         });
 
-// 查看历史记录逻辑
-historyBtn.addEventListener("click", async () => {
-    try {
-        const response = await axios.get("http://localhost:8000/api/history", {
-            headers: { "Authorization": `Bearer ${token}` },
-            params: { page: 1, size: 20 }
-        });
+        // 查看历史记录逻辑
+        historyBtn.addEventListener("click", async () => {
+            try {
+                const response = await axios.get("http://localhost:8000/api/history", {
+                    headers: { "Authorization": `Bearer ${token}` },
+                    params: { page: 1, size: 20 }
+                });
 
-        if (response.data.code === 200) {
-            const historyData = response.data.data.list;
-            historyList.innerHTML = "";
+                if (response.data.code === 200) {
+                    const historyData = response.data.data.list;
+                    historyList.innerHTML = "";
 
-            if (historyData.length === 0) {
-                historyList.innerHTML = "<p style='text-align:center; color:#999;'>暂无检测记录</p>";
-            } else {
-                historyData.forEach(item => {
-                    const itemDiv = document.createElement("div");
-                    itemDiv.className = "history-item";
-                    
-                    let cacheInfo = "";
-                    if (item.use_count && item.use_count > 1) {
-                        cacheInfo = `<span class="history-cache-badge">已使用 ${item.use_count} 次</span>`;
-                    }
-                    
-                    // 关键字展示
-                    let keywordsHtml = "";
-                    if (item.keywords && Array.isArray(item.keywords)) {
-                        item.keywords.forEach(keyword => {
-                            keywordsHtml += `<span style="background:#e9ecef; padding:2px 6px; border-radius:12px; font-size:12px; margin-right:4px;">${keyword}</span>`;
+                    if (historyData.length === 0) {
+                        historyList.innerHTML = "<p style='text-align:center; color:#999;'>暂无检测记录</p>";
+                    } else {
+                        historyData.forEach(item => {
+                            const itemDiv = document.createElement("div");
+                            itemDiv.className = "history-item";
+                            
+                            let cacheInfo = "";
+                            if (item.use_count && item.use_count > 1) {
+                                cacheInfo = `<span class="history-cache-badge">已使用 ${item.use_count} 次</span>`;
+                            }
+                            
+                            // 关键字展示
+                            let keywordsHtml = "";
+                            if (item.keywords && Array.isArray(item.keywords)) {
+                                item.keywords.forEach(keyword => {
+                                    keywordsHtml += `<span style="background:#e9ecef; padding:2px 6px; border-radius:12px; font-size:12px; margin-right:4px;">${keyword}</span>`;
+                                });
+                            }
+                            
+                            // 谣言概率颜色
+                            const rumorProbClass = getRumorProbClass(item.rumor_prob || 0.5);
+                            
+                            // 结论显示样式
+                            const conclusion = item.conclusion || (item.rumor_prob >= 0.5 ? "经分析，该信息【是谣言】。" : "经分析，该信息【不是谣言】。");
+                            const isRumor = conclusion.includes("【是谣言】");
+                            const conclusionStyle = `style="margin: 8px 0; padding: 8px; background: ${isRumor ? '#f8d7da' : '#d1ecf1'}; border-radius: 4px; border-left: 4px solid ${isRumor ? '#dc3545' : '#28a745'};"`;
+                            
+                            itemDiv.innerHTML = `
+                                <p><strong>检测时间：</strong>${item.last_used_time || item.create_time} ${cacheInfo}</p>
+                                <p><strong>文本：</strong>${item.content.length > 60 ? item.content.substring(0, 60) + "..." : item.content}</p>
+                                <div ${conclusionStyle}>
+                                    <strong>📢 结论：</strong>${conclusion}
+                                </div>
+                                <p><strong>关键字：</strong>${keywordsHtml}</p>
+                                <p><strong>类型：</strong>${item.type}</p>
+                                <p><strong>谣言概率：</strong><span class="${rumorProbClass}">${item.rumor_prob}</span></p>
+                                <p><strong>是否AI生成：</strong>${item.is_ai_generated ? "是" : "否"}</p>
+                            `;
+                            historyList.appendChild(itemDiv);
                         });
                     }
-                    
-                    // 谣言概率颜色
-                    const rumorProbClass = getRumorProbClass(item.rumor_prob || 0.5);
-                    
-                    // 结论显示样式
-                    const conclusion = item.conclusion || (item.rumor_prob >= 0.5 ? "经分析，该信息【是谣言】。" : "经分析，该信息【不是谣言】。");
-                    const isRumor = conclusion.includes("【是谣言】");
-                    const conclusionStyle = `style="margin: 8px 0; padding: 8px; background: ${isRumor ? '#f8d7da' : '#d1ecf1'}; border-radius: 4px; border-left: 4px solid ${isRumor ? '#dc3545' : '#28a745'};"`;
-                    
-                    itemDiv.innerHTML = `
-                        <p><strong>检测时间：</strong>${item.last_used_time || item.create_time} ${cacheInfo}</p>
-                        <p><strong>文本：</strong>${item.content.length > 60 ? item.content.substring(0, 60) + "..." : item.content}</p>
-                        <div ${conclusionStyle}>
-                            <strong>📢 结论：</strong>${conclusion}
-                        </div>
-                        <p><strong>关键字：</strong>${keywordsHtml}</p>
-                        <p><strong>类型：</strong>${item.type}</p>
-                        <p><strong>谣言概率：</strong><span class="${rumorProbClass}">${item.rumor_prob}</span></p>
-                        <p><strong>是否AI生成：</strong>${item.is_ai_generated ? "是" : "否"}</p>
-                    `;
-                    historyList.appendChild(itemDiv);
-                });
+
+                    // 显示弹窗
+                    historyModal.style.display = "flex";
+                }
+            } catch (error) {
+                const errMsg = error.response?.data?.detail || "查询历史失败，请重试！";
+                showToast(errMsg, true);
             }
-
-            // 显示弹窗
-            historyModal.style.display = "flex";
-        }
-    } catch (error) {
-        const errMsg = error.response?.data?.detail || "查询历史失败，请重试！";
-        showToast(errMsg, true);
-    }
-});
-
-// 查看缓存统计逻辑
-statsBtn.addEventListener("click", async () => {
-    try {
-        const response = await axios.get("http://localhost:8000/api/duplicate-stats", {
-            headers: { "Authorization": `Bearer ${token}` }
         });
 
-        if (response.data.code === 200) {
-            const statsData = response.data.data;
-            statsContent.innerHTML = "";
-            
-            if (!statsData) {
-                statsContent.innerHTML = "<p style='text-align:center; color:#999;'>暂无统计数据</p>";
-            } else {
-                statsContent.innerHTML = `
-                    <div class="stats-item">
-                        <h4>📊 总体统计</h4>
-                        <div class="stats-value">${statsData.total_records || 0}</div>
-                        <p>总检测记录</p>
-                    </div>
-                    
-                    <div class="stats-item">
-                        <h4>💾 缓存效率</h4>
-                        <div class="stats-value">${statsData.cache_hit_rate || "0%"}</div>
-                        <p>缓存命中率</p>
-                        <p>重复记录：${statsData.duplicate_records || 0} 条</p>
-                    </div>
-                    
-                    <div class="stats-item">
-                        <h4>🔥 热门检测内容</h4>
-                        <div class="stats-list">
-                            ${statsData.most_used_contents && statsData.most_used_contents.length > 0 
-                                ? statsData.most_used_contents.map(item => 
-                                    `<div class="stats-list-item">
-                                        <p>${item.content}</p>
-                                        <p style="font-size:14px; color:#333; margin-top:5px; padding: 5px; background: ${item.conclusion.includes('【是谣言】') ? '#f8d7da' : '#d1ecf1'}; border-radius: 4px;">
-                                            <strong>结论：</strong>${item.conclusion}
-                                        </p>
-                                        <p style="font-size:12px; color:#666; margin-top:5px;">使用次数: ${item.use_count} | 最后使用: ${item.last_used}</p>
-                                    </div>`
-                                ).join('')
-                                : '<p style="text-align:center; color:#999;">暂无热门内容</p>'
-                            }
-                        </div>
-                    </div>
-                    
-                    <div style="margin-top:20px; padding:10px; background:#e7f3ff; border-radius:6px; font-size:14px;">
-                        <strong>💡 说明：</strong>
-                        <p>1. 系统会自动缓存检测结果，相同内容不再重复调用大模型</p>
-                        <p>2. 缓存命中率越高，说明系统复用效率越高</p>
-                        <p>3. 每次使用缓存内容，使用次数会自动增加</p>
-                        <p>4. 结论会明确显示【是谣言】或【不是谣言】</p>
-                    </div>
-                `;
-            }
+        // 查看缓存统计逻辑
+        statsBtn.addEventListener("click", async () => {
+            try {
+                const response = await axios.get("http://localhost:8000/api/duplicate-stats", {
+                    headers: { "Authorization": `Bearer ${token}` }
+                });
 
-            // 显示弹窗
-            statsModal.style.display = "flex";
-        }
-    } catch (error) {
-        console.error("获取统计信息错误:", error);
-        const errMsg = error.response?.data?.detail || "获取统计信息失败，请重试！";
-        showToast(errMsg, true);
-    }
-});
+                if (response.data.code === 200) {
+                    const statsData = response.data.data;
+                    statsContent.innerHTML = "";
+                    
+                    if (!statsData) {
+                        statsContent.innerHTML = "<p style='text-align:center; color:#999;'>暂无统计数据</p>";
+                    } else {
+                        statsContent.innerHTML = `
+                            <div class="stats-item">
+                                <h4>📊 总体统计</h4>
+                                <div class="stats-value">${statsData.total_records || 0}</div>
+                                <p>总检测记录</p>
+                            </div>
+                            
+                            <div class="stats-item">
+                                <h4>💾 缓存效率</h4>
+                                <div class="stats-value">${statsData.cache_hit_rate || "0%"}</div>
+                                <p>缓存命中率</p>
+                                <p>重复记录：${statsData.duplicate_records || 0} 条</p>
+                            </div>
+                            
+                            <div class="stats-item">
+                                <h4>🔥 热门检测内容</h4>
+                                <div class="stats-list">
+                                    ${statsData.most_used_contents && statsData.most_used_contents.length > 0 
+                                        ? statsData.most_used_contents.map(item => 
+                                            `<div class="stats-list-item">
+                                                <p>${item.content}</p>
+                                                <p style="font-size:14px; color:#333; margin-top:5px; padding: 5px; background: ${item.conclusion.includes('【是谣言】') ? '#f8d7da' : '#d1ecf1'}; border-radius: 4px;">
+                                                    <strong>结论：</strong>${item.conclusion}
+                                                </p>
+                                                <p style="font-size:12px; color:#666; margin-top:5px;">使用次数: ${item.use_count} | 最后使用: ${item.last_used}</p>
+                                            </div>`
+                                        ).join('')
+                                        : '<p style="text-align:center; color:#999;">暂无热门内容</p>'
+                                    }
+                                </div>
+                            </div>
+                            
+                            <div style="margin-top:20px; padding:10px; background:#e7f3ff; border-radius:6px; font-size:14px;">
+                                <strong>💡 说明：</strong>
+                                <p>1. 系统会自动缓存检测结果，相同内容不再重复调用大模型</p>
+                                <p>2. 缓存命中率越高，说明系统复用效率越高</p>
+                                <p>3. 每次使用缓存内容，使用次数会自动增加</p>
+                                <p>4. 结论会明确显示【是谣言】或【不是谣言】</p>
+                            </div>
+                        `;
+                    }
+
+                    // 显示弹窗
+                    statsModal.style.display = "flex";
+                }
+            } catch (error) {
+                console.error("获取统计信息错误:", error);
+                const errMsg = error.response?.data?.detail || "获取统计信息失败，请重试！";
+                showToast(errMsg, true);
+            }
+        });
+
+        // 查看系统状态逻辑
+        systemStatusBtn.addEventListener("click", async () => {
+            try {
+                const response = await axios.get("http://localhost:8000/api/system-status");
+                
+                if (response.data.code === 200) {
+                    const statusData = response.data.data;
+                    
+                    // 构建状态信息HTML
+                    let html = `
+                        <div class="stats-item">
+                            <h4>🤖 AI模型配置</h4>
+                            <p><strong>模型：</strong>${statusData.llm_model}</p>
+                            <p><strong>模式：</strong>${statusData.llm_fake_mode ? '模拟模式' : '真实API模式'}</p>
+                        </div>
+                        
+                        <div class="stats-item">
+                            <h4>🌐 网络搜索功能</h4>
+                            <p><strong>DuckDuckGo可用：</strong>${statusData.duckduckgo_available ? '✅ 是' : '❌ 否'}</p>
+                            <p><strong>用户可禁用：</strong>${statusData.user_can_disable_search ? '✅ 是' : '❌ 否'}</p>
+                            <p><strong>系统启用：</strong>${statusData.duckduckgo_enabled ? '✅ 是' : '❌ 否'}</p>
+                            <p><strong>测试结果：</strong>${statusData.test_result}</p>
+                            <p><strong>最大结果数：</strong>${statusData.max_results}</p>
+                            <p><strong>最大查询数：</strong>${statusData.max_queries}</p>
+                        </div>
+                        
+                        <div style="margin-top:20px; padding:10px; background:#e7f3ff; border-radius:6px; font-size:14px;">
+                            <strong>💡 使用说明：</strong>
+                            <p>1. 网络搜索功能可提高检测准确性，但会增加响应时间</p>
+                            <p>2. 您可以在输入框上方开关控制是否启用搜索</p>
+                            <p>3. 对于简单事实或已缓存内容，系统会自动跳过搜索</p>
+                            <p>4. 搜索功能需要互联网连接，并依赖DuckDuckGo服务</p>
+                        </div>
+                    `;
+                    
+                    systemStatusContent.innerHTML = html;
+                    systemStatusModal.style.display = "flex";
+                }
+            } catch (error) {
+                console.error("获取系统状态错误:", error);
+                showToast("获取系统状态失败", true);
+            }
+        });
+
         // 关闭历史记录弹窗
         closeHistoryBtn.addEventListener("click", () => {
             historyModal.style.display = "none";
@@ -1191,6 +1409,11 @@ statsBtn.addEventListener("click", async () => {
             statsModal.style.display = "none";
         });
 
+        // 关闭系统状态弹窗
+        closeSystemStatusBtn.addEventListener("click", () => {
+            systemStatusModal.style.display = "none";
+        });
+
         // 点击弹窗外部关闭
         window.addEventListener("click", (e) => {
             if (e.target === historyModal) {
@@ -1198,6 +1421,9 @@ statsBtn.addEventListener("click", async () => {
             }
             if (e.target === statsModal) {
                 statsModal.style.display = "none";
+            }
+            if (e.target === systemStatusModal) {
+                systemStatusModal.style.display = "none";
             }
         });
 

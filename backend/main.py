@@ -434,15 +434,15 @@ ENHANCED_PROMPT_TEMPLATE = """
 {search_summary}
 
 === 分析要求 ===
-1. 首先分析文本中的核心声明，区分信息性质：判断它是“一个需要核实的新传言”，还是一个“对既有事实的陈述”。
+1. 首先分析文本中的核心声明，区分信息性质：判断它是"一个需要核实的新传言"，还是一个"对既有事实的陈述"。
 2. 参考搜索结果中的信息进行事实核查
 3. 评估声明的逻辑一致性和合理性
 4. 综合搜索结果和逻辑分析给出判断
-对于“既有事实陈述”，特别是包含以下特征的信息，应倾向于认为其可信：
-   - 包含明确的时间（如“2025年8月”）、地点（如“成都”）、机构名称（如“国家航天局”）。
+对于"既有事实陈述"，特别是包含以下特征的信息，应倾向于认为其可信：
+   - 包含明确的时间（如"2025年8月"）、地点（如"成都"）、机构名称（如"国家航天局"）。
    - 描述的是已完成的、有官方记录的公共事件（如已举办的赛事、已发布的国家政策、已完成的科学任务）。
    - 语言风格客观、平实，符合新闻报道特征。
-对于符合上述特征的“既有事实”，应优先通过网络搜索或常识进行验证，而非直接质疑其真实性。
+对于符合上述特征的"既有事实"，应优先通过网络搜索或常识进行验证，而非直接质疑其真实性。
 评估逻辑时，需考虑该事件发生的合理性与是否符合公开日程。
 === 概率计算标准 ===
 请根据证据强度给出精确的概率值（0.0000-1.0000）：
@@ -742,10 +742,12 @@ def perform_web_search(content: str, keywords: list) -> dict:
         }
 
 # 9. 增强的检测函数（带DuckDuckGo搜索）
-def enhanced_real_llm_detect(content: str, type: str, keywords: list):
+def enhanced_real_llm_detect(content: str, type: str, keywords: list, search_enabled: bool = True):
     """增强的检测函数，包含DuckDuckGo搜索"""
     try:
         print(f"📝 调用GLM-4模型API，内容长度: {len(content)}")
+        print(f"🔍 用户搜索设置: {'启用' if search_enabled else '禁用'}")
+        
         fact_check_result = FactChecker.check_simple_facts(content)
         print(f"🔍 事实检查结果: {fact_check_result}")
         
@@ -780,14 +782,20 @@ def enhanced_real_llm_detect(content: str, type: str, keywords: list):
                 "fact_check_used": True,
                 "fact_check_result": fact_check_result
             }
-        # 判断是否需要联网搜索
-        should_search = should_enable_web_search(content, keywords)
+        
+        # 判断是否需要联网搜索 - 考虑用户设置
+        should_search = False
+        if search_enabled and config.SEARCH_CONFIG.get("user_can_disable", True):
+            should_search = should_enable_web_search(content, keywords)
+        
         web_context = {"success": False, "summary": "", "results": []}
         
         # 如果需要搜索，执行DuckDuckGo搜索
         if should_search:
             web_context = perform_web_search(content, keywords)
             print(f"📡 网络验证: {'成功' if web_context['success'] else '失败或无结果'}")
+        else:
+            print(f"🔇 搜索功能被{'用户禁用' if not search_enabled else '系统判断不需要'}")
         
         # 构建提示词
         escaped_content = content.replace("{", "{{").replace("}", "}}")
@@ -1183,6 +1191,7 @@ class LoginRequest(BaseModel):
 class DetectRequest(BaseModel):
     content: str
     type: str
+    search_enabled: bool = True  # 新增：用户是否启用搜索
 
 # ---------------------- 核心接口 ----------------------
 @app.post("/api/register")
@@ -1308,8 +1317,8 @@ def detect(
         print("🤖 使用模拟模式")
         llm_result = fake_llm_detect(request.content, request.type, keywords)
     else:
-        print("🚀 使用GLM-4真实API模式（带DuckDuckGo搜索）")
-        llm_result = enhanced_real_llm_detect(request.content, request.type, keywords)
+        print(f"🚀 使用GLM-4真实API模式，搜索功能: {'启用' if request.search_enabled else '禁用'}")
+        llm_result = enhanced_real_llm_detect(request.content, request.type, keywords, request.search_enabled)
     
     # 7. 存储新的检测记录到数据库
     try:
@@ -1500,17 +1509,21 @@ def get_duplicate_stats(
             "most_used_contents": most_used_list
         }
     }
-# ---------------------- 检查搜索状态接口 ----------------------
-@app.get("/api/search-status")
-def get_search_status():
-    """检查DuckDuckGo搜索功能状态"""
+
+# ---------------------- 检查系统状态接口 ----------------------
+@app.get("/api/system-status")
+def get_system_status():
+    """获取系统状态信息，包括搜索功能状态"""
     
     status_info = {
         "duckduckgo_enabled": config.SEARCH_CONFIG.get("enable", True),
         "duckduckgo_available": DUCKDUCKGO_AVAILABLE,
+        "user_can_disable_search": config.SEARCH_CONFIG.get("user_can_disable", True),
         "max_results": config.SEARCH_CONFIG.get("max_results", 3),
         "max_queries": config.SEARCH_CONFIG.get("max_queries", 2),
-        "timeout": config.SEARCH_CONFIG.get("timeout", 15)
+        "timeout": config.SEARCH_CONFIG.get("timeout", 15),
+        "llm_model": config.LLM_CONFIG["model_name"],
+        "llm_fake_mode": config.LLM_FAKE
     }
     
     # 测试搜索功能
@@ -1527,7 +1540,7 @@ def get_search_status():
     
     return {
         "code": 200,
-        "msg": "状态查询成功",
+        "msg": "系统状态查询成功",
         "data": status_info
     }
 
@@ -1555,6 +1568,7 @@ if __name__ == "__main__":
         print("\n=== DuckDuckGo搜索功能状态 ===")
         print(f"✓ 启用状态: {config.SEARCH_CONFIG.get('enable', True)}")
         print(f"✓ DuckDuckGo可用: {'是' if DUCKDUCKGO_AVAILABLE else '否'}")
+        print(f"✓ 用户可禁用搜索: {'是' if config.SEARCH_CONFIG.get('user_can_disable', True) else '否'}")
         print(f"✓ 最大结果数: {config.SEARCH_CONFIG.get('max_results', 3)}")
         print(f"✓ 最大查询数: {config.SEARCH_CONFIG.get('max_queries', 2)}")
         print(f"✓ 超时时间: {config.SEARCH_CONFIG.get('timeout', 15)}秒")
@@ -1569,11 +1583,12 @@ if __name__ == "__main__":
     print(f"\n=== 谣言甄别系统后端启动 ===")
     print(f" 模型配置: {config.LLM_CONFIG['model_name']}")
     print(f" DuckDuckGo搜索: {'已启用' if config.SEARCH_CONFIG.get('enable', True) and DUCKDUCKGO_AVAILABLE else '未启用'}")
+    print(f" 用户可禁用搜索: {'是' if config.SEARCH_CONFIG.get('user_can_disable', True) else '否'}")
     print(f" 去重功能: 已启用")
     print(f" LLM_FAKE模式: {config.LLM_FAKE}")
     print(f" 服务地址: http://localhost:8000")
     print(f" API文档: http://localhost:8000/docs")
-    print(f" 搜索状态检查: http://localhost:8000/api/search-status")
+    print(f" 系统状态检查: http://localhost:8000/api/system-status")
     
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

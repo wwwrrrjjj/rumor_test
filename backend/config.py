@@ -21,7 +21,7 @@ LLM_CONFIG = {
 
 LLM_FAKE = False
 
-# 搜索配置 - 更新为使用DuckDuckGo
+# 搜索配置 - 使用DuckDuckGo
 SEARCH_CONFIG = {
     "enable": True,
     "provider": "duckduckgo",  # 主要搜索引擎
@@ -29,4 +29,5 @@ SEARCH_CONFIG = {
     "max_queries": 2,  # 最多搜索查询数
     "timeout": 15,  # 搜索超时时间
     "cooldown": 0.5,  # 搜索间隔时间
+    "user_can_disable": True  # 新增：允许用户禁用搜索
 }
